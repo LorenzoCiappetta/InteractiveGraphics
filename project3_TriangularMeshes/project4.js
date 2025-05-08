@@ -61,7 +61,12 @@ class MeshDrawer
 		this.numTriangles = vertPos.length / 3;
 		this.vertPos = vertPos;
 		this.texCoords = texCoords;
-        gl.uniform1i(this.swap,false);			    
+        			    
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.tex_buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.texCoords), gl.STATIC_DRAW);
+		        
+		gl.bindBuffer(gl.ARRAY_BUFFER, this.position_buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertPos), gl.STATIC_DRAW);
 	}
 	
 	// This method is called when the user changes the state of the
@@ -86,15 +91,11 @@ class MeshDrawer
 
         //pass texture buffer to shader
 		gl.bindBuffer(gl.ARRAY_BUFFER, this.tex_buffer);
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.texCoords), gl.STATIC_DRAW);
-        
         gl.vertexAttribPointer( this.texCoords, 2, gl.FLOAT, false, 0, 0 );
 		gl.enableVertexAttribArray( this.texCoords );
 
         //pass position buffer to shader
 		gl.bindBuffer(gl.ARRAY_BUFFER, this.position_buffer);
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertPos), gl.STATIC_DRAW);
-      
         gl.vertexAttribPointer( this.vertPos, 3, gl.FLOAT, false, 0, 0 );
 		gl.enableVertexAttribArray( this.vertPos );
 		        

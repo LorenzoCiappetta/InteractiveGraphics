@@ -5,7 +5,6 @@
 function GetModelViewMatrix( translationX, translationY, translationZ, rotationX, rotationY )
 {
 	// [TO-DO] Modify the code below to form the transformation matrix.
-	
 	var trans = [
 		Math.cos(rotationY), Math.sin(rotationY)*Math.sin(rotationX), -Math.cos(rotationX)*Math.sin(rotationY), 0,
 		0, Math.cos(rotationX), Math.sin(rotationX), 0,
@@ -42,13 +41,18 @@ class MeshDrawer
 	    this.swap = gl.getUniformLocation(this.prog, 'swap');
 	    this.show = gl.getUniformLocation(this.prog, 'show');
 	    
+	    this.light_dir = gl.getUniformLocation(this.prog, 'light_dir');
+	    this.shiny = gl.getUniformLocation(this.prog, 'shiny');
+	    
 	    //attributes
 	    this.vertPos = gl.getAttribLocation( this.prog, 'pos' );
 	    this.texCoords = gl.getAttribLocation(this.prog, 'txc');
+	    this.normals = gl.getAttribLocation(this.prog, 'norm');
 	    
-	    //create Buffers for vertex position and texture coordinates
+	    //create Buffers for vertex position, texture coordinates and normals
 	    this.position_buffer = gl.createBuffer();
 	    this.tex_buffer = gl.createBuffer();
+	    this.norm_buffer = gl.createBuffer();
 	}
 	
 	// This method is called every time the user opens an OBJ file.
@@ -66,9 +70,20 @@ class MeshDrawer
 	{
 		// [TO-DO] Update the contents of the vertex buffer objects.
 		this.numTriangles = vertPos.length / 3;
+		this.numVertices = vertPos.length;
 		this.vertPos = vertPos;
 		this.texCoords = texCoords;
-        gl.uniform1i(this.swap,false);	
+		this.normals = normals;
+		        
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.norm_buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.normals), gl.STATIC_DRAW);		 
+        
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.tex_buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.texCoords), gl.STATIC_DRAW);
+		        
+		gl.bindBuffer(gl.ARRAY_BUFFER, this.position_buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertPos), gl.STATIC_DRAW);
+		        	
 	}
 	
 	// This method is called when the user changes the state of the
@@ -89,28 +104,26 @@ class MeshDrawer
 	draw( matrixMVP, matrixMV, matrixNormal )
 	{
 		// [TO-DO] Complete the WebGL initializations before drawing
-
-		gl.drawArrays( gl.TRIANGLES, 0, this.numTriangles );
-		
 		gl.useProgram( this.prog );
 		gl.uniformMatrix4fv( this.mvp, false, matrixMVP );
 		gl.uniformMatrix4fv( this.mv, false, matrixMV );
-		gl.uniformMatrix4fv( this.mn, false, matrixNormal );
-
+		gl.uniformMatrix3fv( this.mn, false, matrixNormal );
+		
+		//pass normal buffer to shader
+		gl.bindBuffer(gl.ARRAY_BUFFER, this.norm_buffer);
+        gl.vertexAttribPointer( this.normals, 3, gl.FLOAT, false, 0, 0 );
+		gl.enableVertexAttribArray( this.normals );
+		
         //pass texture buffer to shader
 		gl.bindBuffer(gl.ARRAY_BUFFER, this.tex_buffer);
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.texCoords), gl.STATIC_DRAW);
-        
         gl.vertexAttribPointer( this.texCoords, 2, gl.FLOAT, false, 0, 0 );
 		gl.enableVertexAttribArray( this.texCoords );
-
+		
         //pass position buffer to shader
 		gl.bindBuffer(gl.ARRAY_BUFFER, this.position_buffer);
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertPos), gl.STATIC_DRAW);
-      
         gl.vertexAttribPointer( this.vertPos, 3, gl.FLOAT, false, 0, 0 );
 		gl.enableVertexAttribArray( this.vertPos );
-		        
+				
         //		    
 		gl.drawArrays( gl.TRIANGLES, 0, this.numTriangles );
 	}
@@ -142,6 +155,8 @@ class MeshDrawer
                 
         gl.uniform1i(this.show,true);
 		gl.uniform1i(this.sampler,0);
+		gl.uniform1i(this.shiny,1.0);
+
 	}
 	
 	// This method is called when the user changes the state of the
@@ -158,69 +173,105 @@ class MeshDrawer
 	setLightDir( x, y, z )
 	{
 		// [TO-DO] set the uniform parameter(s) of the fragment shader to specify the light direction.
+		var light_dir = new Float32Array([x,y,z]);
+		gl.useProgram(this.prog);
+		gl.uniform3fv(this.light_dir,light_dir);
 	}
 	
 	// This method is called to set the shininess of the material
 	setShininess( shininess )
 	{
 		// [TO-DO] set the uniform parameter(s) of the fragment shader to specify the shininess.
+		gl.useProgram(this.prog);
+        gl.uniform1f(this.shiny,shininess);
 	}
 }
 
 // Vertex shader source code
 var objVS = `
 	attribute vec3 pos;
+	attribute vec3 norm;
 	attribute vec2 txc;
-
 	
 	uniform mat4 mvp;
-	uniform mat4 mv;
+	
 	uniform bool swap;
 	
-
+	varying vec3 normals;
+	varying vec3 position;
 	varying vec2 texCoord;
 	
-
 	void main()
 
 	{
 	    vec3 swap_pos = pos;
+	    vec3 swap_normals = norm;
 
 	    //swap y and z coordinates
 	    if(swap){
 
 		    float temp = swap_pos.y;
-
 		    swap_pos.y = swap_pos.z;
-
 		    swap_pos.z = temp;
 
+            temp = swap_normals.y;
+		    swap_normals.y = swap_normals.z;
+		    swap_normals.z = temp;
 		}
-
-		gl_Position = mvp * vec4(swap_pos,1);
+			    
 		texCoord = txc;
+		normals = swap_normals;
+		position = swap_pos;
+		
+		gl_Position = mvp * vec4(swap_pos,1);
+		
 	}
 `;
 // Fragment shader source code
 var objFS = `
+    
 	precision mediump float;
 	
 	uniform sampler2D tex;
 	uniform bool show;
-	uniform mat4 mn;
+	uniform float shiny;
+	
+	uniform mat3 mn;
+	uniform mat4 mv;
+	
+    uniform vec3 light_dir;
 	
 	varying vec2 texCoord;
-
+	varying vec3 position;
+	varying vec3 normals;
 	
 	void main()
+	
 	{
+	    vec3 v = normalize(-(mv*vec4(position,1.0)).xyz);	    	    
+	    vec3 n = normalize(mn*normals);
+	    vec3 l = normalize(light_dir);
+			    
+        vec4 texColor = vec4(1.0);
+        float opacity = 1.0;
 	    if(show){
 	        //show texture
-	        gl_FragColor = texture2D(tex, texCoord);
+	        texColor = texture2D(tex, texCoord);
+	        opacity = texColor.a;
 	    }else{
-	        //show some nice colours
-	        gl_FragColor = vec4(gl_FragCoord.z*gl_FragCoord.z,0,0.2,1);
-	    }		
+	        texColor = vec4(1.0);
+	    }
+	    
+	    float diffuse = max(dot(l,n),0.0);
+
+	    vec3 h = normalize(l+v);
+
+	    float cos_fi = max(dot(h,n),0.0);
+
+	    float specular = pow(cos_fi,shiny);
+	    vec4 reflection = vec4((diffuse*texColor+specular*vec4(1.0)).rgb,opacity);
+	    
+	    gl_FragColor = reflection;
 	}
 
 `;
