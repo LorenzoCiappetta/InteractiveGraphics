@@ -152,10 +152,10 @@ class MeshDrawer
 		gl.useProgram(this.prog);
 		
         gl.activeTexture(gl.TEXTURE0);
-                
+                       
         gl.uniform1i(this.show,true);
 		gl.uniform1i(this.sampler,0);
-		gl.uniform1i(this.shiny,1.0);
+		gl.uniform1f(this.shiny,1.0);
 
 	}
 	
