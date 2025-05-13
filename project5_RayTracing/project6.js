@@ -41,8 +41,24 @@ vec3 Shade( Material mtl, vec3 position, vec3 normal, vec3 view )
 	vec3 color = vec3(0,0,0);
 	for ( int i=0; i<NUM_LIGHTS; ++i ) {
 		// TO-DO: Check for shadows
+		Light l = lights[i];
+		vec3 light_dir = normalize(l.position-position);
+		vec3 light_intensity = l.intensity;
+		
+		Ray r;
+		r.pos = position;
+		r.dir = light_dir;
+		HitInfo hit;
+		if(IntersectRay(hit,r)){
+		    color += hit.mtl.k_d * light_intensity;
+		}
+		
+		vec3 h = normalize(light_dir+view);
+		float diffuse = normalize(dot(normal,light_dir));
+		float specular = normalize(dot(normal,h));
+		
 		// TO-DO: If not shadowed, perform shading using the Blinn model
-		color += mtl.k_d * lights[i].intensity;	// change this line
+		color += mtl.k_d * diffuse + mtl.k_s*pow(specular,mtl.n);// light_intensity;	// change this line
 	}
 	return color;
 }
@@ -57,7 +73,41 @@ bool IntersectRay( inout HitInfo hit, Ray ray )
 	bool foundHit = false;
 	for ( int i=0; i<NUM_SPHERES; ++i ) {
 		// TO-DO: Test for ray-sphere intersection
+		Sphere s = spheres[i];
+		vec3 c = s.center;
+		float r = s.radius;
+		
+		vec3 p = ray.pos;
+		vec3 d = ray.dir;
+		
+		float a = dot(d,d);
+		float b = dot(d,p-c);
+		float cc = dot(p-c,p-c)-pow(r,2.0);
+		
+		float delta = pow(b,2.0)-a*cc;
+		
 		// TO-DO: If intersection is found, update the given HitInfo
+		if(delta >= 0.0){
+		    //Hit found
+		    
+		    float t1 = (-b-sqrt(delta))/a;
+		    float t2 = (-b+sqrt(delta))/a;
+		    float t = t1<t2?t1:t2;
+		    
+		    //add bias
+		    if(t >= 0.0001 && t < hit.t){
+		        foundHit = true;
+		    
+		        vec3 x = p + t*d;
+		        vec3 n = normalize(x-c);
+		    
+    		    hit.t = t;
+		        hit.mtl = s.mtl;
+		        hit.position = x;
+		        hit.normal = n;
+		        
+            }
+	    }
 	}
 	return foundHit;
 }
@@ -81,10 +131,16 @@ vec4 RayTracer( Ray ray )
 			HitInfo h;	// reflection hit info
 			
 			// TO-DO: Initialize the reflection ray
+			r.pos = hit.position;
+			r.dir = hit.normal;
 			
 			if ( IntersectRay( h, r ) ) {
 				// TO-DO: Hit found, so shade the hit point
+				gl_FragColor = vec4(clr,1.0);
 				// TO-DO: Update the loop variables for tracing the next reflection ray
+				view = normalize(-r.dir);
+				clr += Shade(h.mtl,h.position,h.normal,view);
+				k_s = h.mtl.k_s;
 			} else {
 				// The refleciton ray did not intersect with anything,
 				// so we are using the environment color
