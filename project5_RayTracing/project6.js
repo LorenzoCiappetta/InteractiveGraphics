@@ -50,15 +50,20 @@ vec3 Shade( Material mtl, vec3 position, vec3 normal, vec3 view )
 		r.dir = light_dir;
 		HitInfo hit;
 		if(IntersectRay(hit,r)){
-		    color += hit.mtl.k_d * light_intensity;
+		    return color;
 		}
 		
-		vec3 h = normalize(light_dir+view);
-		float diffuse = normalize(dot(normal,light_dir));
-		float specular = normalize(dot(normal,h));
-		
 		// TO-DO: If not shadowed, perform shading using the Blinn model
-		color += mtl.k_d * diffuse + mtl.k_s*pow(specular,mtl.n);// light_intensity;	// change this line
+		float diffuse = max(dot(normal,light_dir),0.0);
+		if(diffuse > 0.0){
+		    vec3 clr = diffuse * mtl.k_d;
+		    vec3 h = normalize(light_dir+view);
+		    float specular = max(dot(normal,h),0.0);
+		    if(specular > 0.0){
+		        clr += mtl.k_s*pow(specular,mtl.n);
+		    }
+		    color += clr * light_intensity;
+		}
 	}
 	return color;
 }
@@ -95,7 +100,7 @@ bool IntersectRay( inout HitInfo hit, Ray ray )
 		    float t = t1<t2?t1:t2;
 		    
 		    //add bias
-		    if(t >= 0.0001 && t < hit.t){
+		    if(t > 0.001 && t < hit.t){
 		        foundHit = true;
 		    
 		        vec3 x = p + t*d;
@@ -132,15 +137,15 @@ vec4 RayTracer( Ray ray )
 			
 			// TO-DO: Initialize the reflection ray
 			r.pos = hit.position;
-			r.dir = hit.normal;
+			r.dir = reflect(-view,hit.normal);
 			
 			if ( IntersectRay( h, r ) ) {
 				// TO-DO: Hit found, so shade the hit point
-				gl_FragColor = vec4(clr,1.0);
+				clr += Shade(h.mtl,h.position,h.normal,view);
 				// TO-DO: Update the loop variables for tracing the next reflection ray
 				view = normalize(-r.dir);
-				clr += Shade(h.mtl,h.position,h.normal,view);
 				k_s = h.mtl.k_s;
+				hit = h;
 			} else {
 				// The refleciton ray did not intersect with anything,
 				// so we are using the environment color
