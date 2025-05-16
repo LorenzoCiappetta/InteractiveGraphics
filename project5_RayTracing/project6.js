@@ -50,7 +50,7 @@ vec3 Shade( Material mtl, vec3 position, vec3 normal, vec3 view )
 		r.dir = light_dir;
 		HitInfo hit;
 		if(IntersectRay(hit,r)){
-		    return color;
+		    return 0.0*color;
 		}
 		
 		// TO-DO: If not shadowed, perform shading using the Blinn model
@@ -94,13 +94,12 @@ bool IntersectRay( inout HitInfo hit, Ray ray )
 		// TO-DO: If intersection is found, update the given HitInfo
 		if(delta >= 0.0){
 		    //Hit found
-		    
 		    float t1 = (-b-sqrt(delta))/a;
 		    float t2 = (-b+sqrt(delta))/a;
 		    float t = t1<t2?t1:t2;
 		    
 		    //add bias
-		    if(t > 0.001 && t < hit.t){
+		    if(t > 2e-4 && t < hit.t){
 		        foundHit = true;
 		    
 		        vec3 x = p + t*d;
@@ -141,10 +140,10 @@ vec4 RayTracer( Ray ray )
 			
 			if ( IntersectRay( h, r ) ) {
 				// TO-DO: Hit found, so shade the hit point
-				clr += Shade(h.mtl,h.position,h.normal,view);
+				clr += k_s*Shade(h.mtl,h.position,h.normal,view);
 				// TO-DO: Update the loop variables for tracing the next reflection ray
 				view = normalize(-r.dir);
-				k_s = h.mtl.k_s;
+				k_s *= h.mtl.k_s;
 				hit = h;
 			} else {
 				// The refleciton ray did not intersect with anything,
