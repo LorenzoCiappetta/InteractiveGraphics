@@ -196,13 +196,63 @@ class MeshDrawer
 function SimTimeStep( dt, positions, velocities, springs, stiffness, damping, particleMass, gravity, restitution )
 {
 	var forces = Array( positions.length ); // The total for per particle
-
+    
 	// [TO-DO] Compute the total force of each particle
 	
+	var i ;
+	for(i=0; i < forces.length; i++){
+	    forces[i] = new Vec3(0,0,0);
+	    forces[i].inc(gravity.mul(particleMass));
+	}
+	
+	for(i=0; i < springs.length; i++){
+
+        F0 = new Vec3(0,0,0);
+        F1 = new Vec3(0,0,0);
+
+	    var s = springs[i];
+	    var x0 = positions[s.p0];
+	    var x1 = positions[s.p1];
+	    
+        var v0 = velocities[s.p0];
+        var v1 = velocities[s.p1];
+
+	    var r = s.rest;
+	    
+	    var d = x1.add(x0.mul(-1));
+	    var l = d.len();
+	    d.scale(1/l);
+	    
+	    var dl = v1.add(v0.mul(-1)).dot(d);
+	    
+	    F0.inc(d.mul(stiffness*(l-r)));
+	    F1.inc(d.mul(-stiffness*(l-r)));
+	    
+	    F0.inc(d.mul(damping*dl));
+	    F1.inc(d.mul(-damping*dl));
+	    
+	    forces[s.p0].inc(F0);
+	    forces[s.p1].inc(F1);
+	    
+	}
+    
+	for(i=0; i < velocities.length; i++){
 	// [TO-DO] Update positions and velocities
-	
+	    var a = forces[i].mul(1/particleMass);
+	    var v = velocities[i];
+	    var p = positions[i];
+	    a.scale(dt);
+	    v.inc(a);
+	    var dv = v.mul(dt);
+	    var pp = p.add(dv);
 	// [TO-DO] Handle collisions
-	
+	    if(Math.abs(pp.x) >= 1 || Math.abs(pp.y) >= 1 || Math.abs(pp.z) >= 1){
+	        v.scale(-restitution)
+            continue;
+	    }
+	    p.set(pp);
+	}
+		
 }
 
 // Vertex shader source code

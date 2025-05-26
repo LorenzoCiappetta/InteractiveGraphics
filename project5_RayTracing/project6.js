@@ -50,7 +50,7 @@ vec3 Shade( Material mtl, vec3 position, vec3 normal, vec3 view )
 		r.dir = light_dir;
 		HitInfo hit;
 		if(IntersectRay(hit,r)){
-		    return 0.0*color;
+		    return color;
 		}
 		
 		// TO-DO: If not shadowed, perform shading using the Blinn model
