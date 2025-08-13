@@ -4,42 +4,18 @@
 <title>Final Project</title>
 <script type="text/javascript" id="includedscript" src="drawers.js"></script>
 <script type="text/javascript" id="includedscript" src="entities.js"></script>
+<script type="text/javascript" id="includedscript" src="utils.js"></script>
+<script type="text/javascript" id="includedscript" src="skybox.js"></script>
 
-<!-- to render the background --> 
-<script id="raytraceVS" type="x-shader/x-vertex">
-attribute vec3 p;
-uniform mat4 proj;
-uniform mat4 c2w;
-varying vec3 ray_pos;
-varying vec3 ray_dir;
-void main()
-{
-    gl_Position = proj * vec4(p,1);
-	vec4 rp = c2w * vec4(0,0,0,1);
-	ray_pos = rp.xyz;
-	vec4 rd = c2w * vec4(p,1);
-	ray_dir = rd.xyz - ray_pos;
-}
-</script>
-
-<!-- to render the background -->
-<script id="envFS" type="x-shader/x-fragment">
-precision mediump float;
-varying vec3 ray_dir;
-uniform samplerCube envMap;
-void main()
-{
-	gl_FragColor = textureCube( envMap, ray_dir.xzy );
-}
-
-</script>
 
 <script type="text/javascript">
+
+var timestep = 20.0;
 
 const transZmin = 1.001;
 const transZmax = 10;
 
-var canvas, gl, world, crtr;
+var canvas, gl, sim, world, crtr;
 var perspectiveMatrix;	// perspective projection matrix
 var environmentTexture;
 var viewRotX=0, viewRotZ=0, transZ=3;
@@ -54,135 +30,17 @@ var lights = [
 	}
 ];
 
-var screenQuad = {
-	init( fov, z )
-
-	{
-		if ( ! this.vbuf ) this.vbuf = gl.createBuffer();
-		const r = canvas.width / canvas.height;
-
-		const ff = Math.PI * fov / 180;
-		const tant_2 = Math.tan( ff/2 );
-		const y = z * tant_2;
-
-		const x = y * r;
-		const rtp = [
-			-x, -y, -z,
-
-			 x, -y, -z,
-			 x,  y, -z,
-			-x, -y, -z,
-
-			 x,  y, -z,
-			-x,  y, -z,
-		];
-
-		gl.bindBuffer(gl.ARRAY_BUFFER, this.vbuf);
-		gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(rtp), gl.STATIC_DRAW);
-	},
-
-	draw( prog, trans )
-	{
-		gl.useProgram( prog );
-
-		gl.uniformMatrix4fv( gl.getUniformLocation( prog, 'c2w' ), false, trans.camToWorld );
-		gl.bindBuffer( gl.ARRAY_BUFFER, this.vbuf );
-		var p = gl.getAttribLocation ( prog, 'p' );
-
-		gl.vertexAttribPointer( p, 3, gl.FLOAT, false, 0, 0 );
-		gl.enableVertexAttribArray( p );
-		gl.drawArrays( gl.TRIANGLES, 0, 6 );
-
-	}
-};
-
-var background = {
-	init()
-	{
-
-		this.prog = InitShaderProgramFromScripts( 'raytraceVS', 'envFS' );
-	},
-	updateProj()
-	{
-		gl.useProgram( this.prog );
-		gl.uniformMatrix4fv( gl.getUniformLocation( this.prog, 'proj' ), false, perspectiveMatrix );
-
-	},
-	draw( trans )
-	{
-
-		gl.depthMask( false );
-		screenQuad.draw( this.prog, trans );
-		gl.depthMask( true );
-
-	}
-};
-
 function InitScene()
 {
   var trans = GetTrans();
   var mvp = MatrixMult( perspectiveMatrix, trans.worldToCam );
   boxDrawer  = new BoxDrawer();
   world = new World(boxDrawer, mvp, null, 10.0, null);
-  world.drawer.setBox(50,50,-1,-50,-50,-1);
+  world.drawer.setMesh(getBoxMesh(5,5,-1,-5,-5,-1), null);
+  
+  sim = new SimulationControl(world, timestep);
 }
 
-function InitEnvironmentMap()
-
-{
-	environmentTexture = gl.createTexture();
-	gl.bindTexture( gl.TEXTURE_CUBE_MAP, environmentTexture );
-
-	
-	const url = 'https://webglfundamentals.org/webgl/resources/images/computer-history-museum/';
-	const files = [
-
-	  'pos-x.jpg',
-	  'neg-x.jpg',
-	  'pos-y.jpg',
-
-	  'neg-y.jpg',
-	  'pos-z.jpg',
-	  'neg-z.jpg',
-
-	];
-	const faces = [
-		gl.TEXTURE_CUBE_MAP_POSITIVE_X,
-
-		gl.TEXTURE_CUBE_MAP_NEGATIVE_X,
-		gl.TEXTURE_CUBE_MAP_POSITIVE_Y,
-		gl.TEXTURE_CUBE_MAP_NEGATIVE_Y,
-
-		gl.TEXTURE_CUBE_MAP_POSITIVE_Z,
-		gl.TEXTURE_CUBE_MAP_NEGATIVE_Z,
-	];
-
-
-	var loaded = 0;
-	for ( var i=0; i<6; ++i ) {
-		gl.texImage2D( faces[i], 0, gl.RGBA, 128, 128, 0, gl.RGBA, gl.UNSIGNED_BYTE, null );
-
-		const img = new Image();
-		img.crossOrigin = "anonymous";
-		img.face = faces[i];
-
-		img.onload = function() {
-			gl.bindTexture( gl.TEXTURE_CUBE_MAP, environmentTexture );
-			gl.texImage2D( this.face, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this );
-
-			loaded++;
-			if ( loaded == 6 ) {
-				gl.generateMipmap(gl.TEXTURE_CUBE_MAP);
-
-				DrawScene();
-			}
-		};
-
-		img.src = url + files[i];
-	}
-	gl.texParameteri( gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR );
-
-}
 
 // Called once to initialize
 function InitWebGL()
@@ -206,11 +64,12 @@ function InitWebGL()
 	
 	InitEnvironmentMap();		
 
-  background.init();
+  //background.init();
 
   UpdateCanvasSize();
 	
   InitScene();
+  
 
 }
 
@@ -259,7 +118,7 @@ function UpdateProjectionMatrix()
 
 	
 	screenQuad.init(fov,(n+f)/2);
-	background.updateProj();
+	//background.updateProj();
 
 }
 
@@ -315,61 +174,10 @@ function DrawScene()
   var mvp = MatrixMult( perspectiveMatrix, trans.worldToCam );
 
 	// Rasterization
-	background.draw( trans );
+	//background.draw( trans );
   world.setPosition(mvp);
 	world.drawWorld();
 
-
-}
-
-// This is a helper function for compiling the given vertex and fragment shader script ids into a program.
-function InitShaderProgramFromScripts( vs, fs )
-{
-	return InitShaderProgram( document.getElementById(vs).text, document.getElementById(fs).text );	
-
-}
-
-// This is a helper function for compiling the given vertex and fragment shader source code into a program.
-function InitShaderProgram( vsSource, fsSource )
-{
-	const vs = CompileShader( gl.VERTEX_SHADER,   vsSource );
-
-	const fs = CompileShader( gl.FRAGMENT_SHADER, fsSource );
-
-	if ( ! vs || ! fs ) return null;
-
-	
-	const prog = gl.createProgram();
-	gl.attachShader(prog, vs);
-
-	gl.attachShader(prog, fs);
-	gl.linkProgram(prog);
-
-
-	if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-		alert('Unable to initialize the shader program: ' + gl.getProgramInfoLog(prog));
-		return null;
-
-	}
-	return prog;
-}
-
-// This is a helper function for compiling a shader, called by InitShaderProgram().
-function CompileShader( type, source )
-
-{
-	const shader = gl.createShader(type);
-	gl.shaderSource(shader, source);
-
-	gl.compileShader(shader);
-	if (!gl.getShaderParameter( shader, gl.COMPILE_STATUS) ) {
-		alert('An error occurred compiling shader:\n' + gl.getShaderInfoLog(shader));
-
-		gl.deleteShader(shader);
-		return null;
-	}
-
-	return shader;
 }
 
 // Multiplies two matrices and returns the result A*B.
@@ -484,13 +292,12 @@ body {
 	padding: 0;
 	margin: 0;
 }
-input[type=checkbox], label {
-	cursor: hand;
-}
-input[type=range] {
+
+input[type=button] {
 	width: 100%;
+	min-width: 9em;
 }
-canvas {
+#canvas {
 	display: block;
 	position: absolute;
 	top:  0;
@@ -500,49 +307,81 @@ canvas {
 }
 #canvas-div {
 	position: relative;
-	width: 100%;
-	height: 100%;
+}
+.sel {
+	cursor: hand;
 }
 #controls-div {
-	background-color: rgba(0,0,0,0.5);
-	position: absolute;
-	right: 1em;
-	top: 1em;
-	width: 18em;
+	vertical-align: top;
+	background-color: #333;
+	overflow: auto;
 }
 #controls {
 	padding: 1em;
 }
+.control-group {
+	position: relative;
+	max-width: 12em;
+}
 .control {
 	padding: 0.2em;
-	clear: both;
 }
-.val {
-	float: right;
-	text-align: right;
+.control-x {
+	display: none;
 }
-.value {
-	margin-right: 0.5em;
+
+@media (orientation: landscape) {
+	#canvas-div {
+		display: inline-block;
+		width:  calc(100% - 14em);
+		height: 100%;
+	}
+	#controls-div {
+		display: inline-block;
+		width:   14em;
+		height: 100%;
+	}
+	.control-group {
+		overflow: hidden;
+	}
+	.control-group ~ .control-group {
+		margin-top: 1em;
+	}
+	#texture-img {
+		width: 100%;
+		height: auto;
+	}
 }
-.btn {
-	width: 100%;
-}
-#buttons {
-	position: absolute;
-	right: 0;
-	top: 0;
-}
-#buttons input[type=button] {
-	background-color: rgba(80,80,80,0.5);
-	color: #aaa;
-	font-size: 70%;
-	outline: none;
+@media (orientation: portrait) {
+	#canvas-div {
+		width:  100%;
+		height: calc(100% - 20em);
+	}
+	#controls-div {
+		width:  100%;
+		height: 20em;
+	}
+	.control-group {
+		display: inline-block;
+		vertical-align: top;
+	}
+	.control-group ~ .control-group {
+		margin-left: 2em;
+	}
+	#texture-img {
+		width: auto;
+		height: 5em;
+	}
 }
 </style>
 
 </head>
 <body onresize="WindowResize()">
-<div id="canvas-div"><canvas id="canvas"></canvas></div></div>
+<div id="canvas-div"><canvas id="canvas"></canvas></div><div id="controls-div">
+<div id="controls">
+<div class="control-group">
+<div class="control"><input type="button" value="Start Simulation" onclick="sim.toggleSimulation(this, timestep)"></div>
+</div>
 </div>
 </div>
 </div>

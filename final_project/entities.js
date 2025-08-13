@@ -34,6 +34,7 @@ class World extends Entity {
         }
         
         this.gravity = gravity;
+        this.elapsed_time = 0;
         
     }
     
@@ -46,6 +47,10 @@ class World extends Entity {
             entity_array.push(e);
         }
     }   
+       
+    setPosition(position) {
+        this.position = position;
+    }
     
     drawWorld() {
         this.drawer.draw(this.position);
@@ -57,16 +62,16 @@ class World extends Entity {
         
     }
 
-    SimTimeStep(dt, gravity) {
+    SimTimeStep( gravity, timestep ) {
+    	
+        const dt = timestep / 1000;	// time step in seconds
+        
         for(let i = 0; i < this.entity_array.length; i++){
             e = this.entity_array[i];
             e.SimTimeStep(dt, gravity);
         }
-    
-    }
-    
-    setPosition(position) {
-        this.position = position;
+        this.elapsed_time += timestep;
+        alert(this.elapsed_time);
     }
     
 };

@@ -3,14 +3,18 @@
 class Drawer {
     constructor() {
     
-      if(this.constructor == Drawer) {
-         throw new Error("Class is of abstract type and can't be instantiated");
-      };
+        if(this.constructor == Drawer) {
+            throw new Error("Class is of abstract type and can't be instantiated");
+        };
 
-      if(this.draw == undefined) {
-          throw new Error("draw method must be implemented");
-      };
-   }
+        if(this.setMesh == undefined) {
+            throw new Error("setMesh method must be implemented");
+        };
+
+        if(this.draw == undefined) {
+            throw new Error("draw method must be implemented");
+        };
+    }
 }   
 
 // class to draw boxes 
@@ -32,22 +36,11 @@ class BoxDrawer extends Drawer {
 		this.linebuffer = gl.createBuffer();
 	}
 	
-	setBox(x1,y1,z1,x2,y2,z2){
-		var pos = [
-			x2, y2, z1,  x1, y2, z1,  x1, y1, z1,  x2, y1, z1,
-			x2, y2, z2,  x2, y1, z2,  x1, y1, z2,  x1, y2, z2,
-			x2, y1, z2,  x2, y1, z1,  x1, y1, z1,  x1, y1, z2,
-			x2, y2, z2,  x1, y2, z2,  x1, y2, z1,  x2, y2, z1,
-			x1, y2, z2,  x1, y1, z2,  x1, y1, z1,  x1, y2, z1,
-			x2, y2, z2,  x2, y2, z1,  x2, y1, z1,  x2, y1, z2
-			];
-		gl.bindBuffer(gl.ARRAY_BUFFER, this.vertbuffer);
-		gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pos), gl.STATIC_DRAW);
+	setMesh( vertPos, texCoords ){
 
-		/*var line = [
-			0,1,   1,3,   3,2,   2,0,
-			4,5,   5,7,   7,6,   6,4,
-			0,4,   1,5,   3,7,   2,6 ];*/
+		gl.bindBuffer(gl.ARRAY_BUFFER, this.vertbuffer);
+		gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertPos), gl.STATIC_DRAW);
+
 		var line = [
 		     0,  1,  2,      0,  2,  3,    // front
             4,  5,  6,      4,  6,  7,    // back
@@ -69,7 +62,6 @@ class BoxDrawer extends Drawer {
 		gl.enableVertexAttribArray( this.vertPos );
 		
 		gl.bindBuffer( gl.ELEMENT_ARRAY_BUFFER, this.linebuffer );
-		//gl.drawElements( gl.LINES, 24, gl.UNSIGNED_BYTE, 0 );
 		gl.drawElements( gl.TRIANGLES, 36, gl.UNSIGNED_BYTE, 0);
 	}
 }
@@ -238,16 +230,13 @@ class MeshDrawer extends Drawer {
 	    this.mvp = gl.getUniformLocation( this.prog, 'mvp' );
 	    this.sampler = gl.getUniformLocation(this.prog, 'tex');
 	    
-	    this.swap = gl.getUniformLocation(this.prog, 'swap');
-	    this.show = gl.getUniformLocation(this.prog, 'show');
-	    
 	    //attributes
 	    this.vertPos = gl.getAttribLocation( this.prog, 'pos' );
 	    this.texCoords = gl.getAttribLocation(this.prog, 'txc');
 	    
 	    //create Buffers for vertex position and texture coordinates
-	    this.position_buffer = gl.createBuffer();
-	    this.tex_buffer = gl.createBuffer();
+	    this.vertbuffer = gl.createBuffer();
+	    this.texbuffer = gl.createBuffer();
 	}
 	
 	// This method is called every time the user opens an OBJ file.
@@ -259,26 +248,12 @@ class MeshDrawer extends Drawer {
 	{
 	    //Update the contents of the vertex buffer objects.
 		this.numTriangles = vertPos.length / 3;
-		this.vertPos = vertPos;
-		this.texCoords = texCoords;
         			    
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.tex_buffer);
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.texCoords), gl.STATIC_DRAW);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.texbuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(texCoords), gl.STATIC_DRAW);
 		        
-		gl.bindBuffer(gl.ARRAY_BUFFER, this.position_buffer);
-
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertPos), gl.STATIC_DRAW);
-	}
-	
-	// This method is called when the user changes the state of the
-	// "Swap Y-Z Axes" checkbox. 
-	// The argument is a boolean that indicates if the checkbox is checked.
-	swapYZ( swap )
-	{
-		//changes orientations every time function is called
-        gl.useProgram(this.prog);
-        gl.uniform1i(this.swap,swap);
-        
+		gl.bindBuffer(gl.ARRAY_BUFFER, this.vertbuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertPos), gl.STATIC_DRAW);
 	}
 	
 	// This method is called to draw the triangular mesh.
@@ -290,12 +265,12 @@ class MeshDrawer extends Drawer {
 		gl.uniformMatrix4fv( this.mvp, false, trans );
 
         //pass texture buffer to shader
-		gl.bindBuffer(gl.ARRAY_BUFFER, this.tex_buffer);
+		gl.bindBuffer(gl.ARRAY_BUFFER, this.texbuffer);
         gl.vertexAttribPointer( this.texCoords, 2, gl.FLOAT, false, 0, 0 );
 		gl.enableVertexAttribArray( this.texCoords );
 
         //pass position buffer to shader
-		gl.bindBuffer(gl.ARRAY_BUFFER, this.position_buffer);
+		gl.bindBuffer(gl.ARRAY_BUFFER, this.vertbuffer);
         gl.vertexAttribPointer( this.vertPos, 3, gl.FLOAT, false, 0, 0 );
 		gl.enableVertexAttribArray( this.vertPos );
 		        
@@ -332,15 +307,6 @@ class MeshDrawer extends Drawer {
 		gl.uniform1i(this.sampler,0);
 	}
 	
-	// This method is called when the user changes the state of the
-	// "Show Texture" checkbox. 
-	// The argument is a boolean that indicates if the checkbox is checked.
-	showTexture( show )
-	{
-        gl.useProgram(this.prog);
-        gl.uniform1i(this.show,show);
-	}
-	
 }
 
 // Vertex shader source code
@@ -349,19 +315,13 @@ var objVS = `
 	attribute vec2 txc;
 	
 	uniform mat4 mvp;
-	uniform bool swap;
 	
 	varying vec2 texCoord;
 	
 	void main()
 	{
 	    vec3 swap_pos = pos;
-	    //swap y and z coordinates
-	    if(swap){
-		    float temp = swap_pos.y;
-		    swap_pos.y = swap_pos.z;
-		    swap_pos.z = temp;
-		}
+
 		gl_Position = mvp * vec4(swap_pos,1);
 		texCoord = txc;
 	}
@@ -371,18 +331,17 @@ var objFS = `
 	precision mediump float;
 	
 	uniform sampler2D tex;
-	uniform bool show;
 	
 	varying vec2 texCoord;
 	
 	void main()
 	{
-	    if(show){
-	        //show texture
-	        gl_FragColor = texture2D(tex, texCoord);
-	    }else{
-	        //show some nice colours
-	        gl_FragColor = vec4(gl_FragCoord.z*gl_FragCoord.z,0,0.2,1);
-	    }		
+	    
+	    //show texture
+	    //gl_FragColor = texture2D(tex, texCoord);
+	        
+	    //show some nice colours
+	    gl_FragColor = vec4(gl_FragCoord.z*gl_FragCoord.z,0,0.2,1);
+	    		
 	}
 `;
