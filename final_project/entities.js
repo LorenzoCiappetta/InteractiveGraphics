@@ -1,41 +1,67 @@
-// parent class to all entities in simulation (objects, characters, enemies, etc.)
-class Entity {
-    // drawer = drawer class used to render the object, position = transformation matrix from World's RF to entity RF, mesh = array of verteces
-    constructor(drawer, position, mesh) {
-    
-      if(this.constructor == Entity) {
-         throw new Error("Class is of abstract type and can't be instantiated");
-      };
+import SpatialHashGrid from '/utils.js'
 
-      if(this.SimTimeStep == undefined) {
-          throw new Error("draw method must be implemented");
-      };
-      
-    if(this.setPosition == undefined) {
-          throw new Error("setPosition method must be implemented");
-      };
-            
-      this.drawer = drawer;
-      this.position = position;
-      this.mesh = mesh;
+/*function callUpdate(e){
+    if(e.update == undefined){
+        return
+    }
+    e.update();
+}*/
+
+// abstract class for game objects
+class Entity {
+    constructor({
+        mesh,
+        parent, // each entity has a parent, world is parent to all (not sure if this is redundant if 3js has it already)
+        position = {
+            x: 0,
+            y: 0,
+            z: 0,
+        },
+        hitbox = {
+            height,
+            width,
+        }
+    }){
+        // Cannot create object of class entity
+        if(this.constructor == Entity) {
+            throw new Error("Class is of abstract type and can't be instantiated");
+        }; 
+        
+        // All entities require these methods
+        if(this.update == undefined) {
+            throw new Error("update method must be implemented");        
+        }
+        
+        this._mesh = mesh;
+        this._mesh.position.set(position.x, position.y, position.z);
+        this._position = position;
+        this._hitbox = hitbox; 
+        this._parent = parent
     }
 }
 
-// world class contains all that there's in the simulation
-class World extends Entity {
-    constructor(drawer, position, mesh, gravity, entity_array) {
-        super(drawer, position, mesh);
-        
-        if(entity_array == null) {
-            this.entity_array = [];
-        }
-        else {
-            this.entity_array = entity_array;
-        }
-        
-        this.gravity = gravity;
-        this.elapsed_time = 0;
-        
+export default class World extends Entity {
+    constructor({
+        mesh,
+        position = {
+            x: 0,
+            y: 0,
+            z: 0,
+        },
+        hitbox = {
+            height,
+            width,
+        },
+        grid // data structure used to contain all other entities in the world (e.g. grid hashmap)
+    }){
+        super({
+            mesh: mesh,
+            position: position,
+            hitbox: hitbox,
+            parent: null // world has no parent
+       }); 
+       
+       this._grid = grid; 
     }
     
     addEntity(e) {
@@ -44,48 +70,45 @@ class World extends Entity {
         }
         
         if(e instanceof Entity) {
-            entity_array.push(e);
+            this.grid.NewClient(e, e._position, e._hitbox);
         }
-    }   
-       
-    setPosition(position) {
-        this.position = position;
     }
     
-    drawWorld() {
-        this.drawer.draw(this.position);
-        
-        for(let i = 0; i < this.entity_array.length; i++){
-            e = this.entity_array[i];
-            e.drawer.draw(e.position);
+    _callUpdate(e){
+        if(e.update == undefined){
+            return
         }
-        
+        e.update();
     }
+    
+    update() {
+        this.grid.IterateOverClients(this._callUpdate);
+    }
+}
 
-    SimTimeStep( gravity, timestep ) {
-    	
-        const dt = timestep / 1000;	// time step in seconds
-        
-        for(let i = 0; i < this.entity_array.length; i++){
-            e = this.entity_array[i];
-            e.SimTimeStep(dt, gravity);
+export class Character extends Entity {
+    constructor({
+        mesh,
+        parent, // each entity has a parent, world is parent to all (not sure if this is redundant if 3js has it already)
+        position = {
+            x: 0,
+            y: 0,
+            z: 0,
+        },
+        hitbox = {
+            height,
+            width,
         }
-        this.elapsed_time += timestep;
-        alert(this.elapsed_time);
+    }){
+        super({
+            mesh: mesh,
+            position: position,
+            hitbox: hitbox,
+            parent: parent 
+       });     
     }
     
-};
-
-class Character extends Entity {
-    constructor(drawer, position, mesh) {
-        super(drawer, position, mesh);
+    update(){
+        this.position.y += 0.01;
     }
-    
-    SimTimeStep(dt, gravity){
-        return
-    }
-    
-    setPosition(position) {
-        this.position = position;
-    }
-};
+}
