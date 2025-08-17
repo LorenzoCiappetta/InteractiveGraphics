@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import SpacialHashGrid from './utils.js'
-import World from './entities.js'
+import {World, Character} from './entities.js'
 
+// initialize scene
 const w = window.innerWidth;
 const h = window.innerHeight;
 
@@ -17,24 +17,62 @@ renderer.shadowMap.enabled = true;
 renderer.setSize( w, h );
 document.body.appendChild( renderer.domElement ); // canvas
 
-const ground_geometry = new THREE.BoxGeometry(10,0.5,50);
-const ground_material = new THREE.MeshStandardMaterial({ color: 'white' });
+// initialize objects
+const ground_geometry = new THREE.BoxGeometry(5,0.5,5);
+const ground_material = new THREE.MeshStandardMaterial({ color: 0xffffff });
 const ground_mesh = new THREE.Mesh(ground_geometry, ground_material);
 ground_mesh.receiveShadow = true;
 
-const char_geometry = new THREE.BoxGeometry(1,1,1);
+const char_geometry = new THREE.BoxGeometry(0.8,1.7,0.8);
 const char_material = new THREE.MeshStandardMaterial({ color: 'green' });
 const char_mesh = new THREE.Mesh(char_geometry, char_material);
 char_mesh.castShadow = true;
 
-const grid = new SpacialHashGrid(null, null);
 const world = new World({ 
     mesh:ground_mesh, 
     hitbox:{
+        width:5, 
         height:0.5, 
-        width:50}, 
-    grid: grid
+        depth:5
+    },
 });
 
+const crtr = new Character({
+    mesh: char_mesh,
+    position: {
+        x:0,
+        y:1.5,
+        z:0
+    },
+    hitbox: {
+        width: 1,
+        height: 1.7,
+        depth: 1
+    },
+    parent: world
+});
+
+world.addEntity(crtr);
+
 scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+const dirlight = new THREE.DirectionalLight( 0xffffff, 1);
+dirlight.position.y = 3;
+dirlight.position.z = 1;
+dirlight.castShadow = true;
+scene.add(dirlight);
 scene.add(ground_mesh);
+scene.add(char_mesh);
+
+let frames = 0;
+
+function animate(){
+    const animationId = requestAnimationFrame(animate);
+    renderer.render(scene, camera);
+    
+    world.update();
+
+    frames++;
+}
+
+animate()
+

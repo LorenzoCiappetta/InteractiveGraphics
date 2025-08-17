@@ -1,11 +1,4 @@
-import SpatialHashGrid from '/utils.js'
-
-/*function callUpdate(e){
-    if(e.update == undefined){
-        return
-    }
-    e.update();
-}*/
+import {SpatialGrid, boxLimits, boxCollision} from '/utils.js'
 
 // abstract class for game objects
 class Entity {
@@ -18,8 +11,9 @@ class Entity {
             z: 0,
         },
         hitbox = {
-            height,
-            width,
+            width, // along x
+            height, // along y 
+            depth // along z
         }
     }){
         // Cannot create object of class entity
@@ -34,34 +28,67 @@ class Entity {
         
         this._mesh = mesh;
         this._mesh.position.set(position.x, position.y, position.z);
-        this._position = position;
-        this._hitbox = hitbox; 
-        this._parent = parent
+        this._hitbox = hitbox;
+        this._parent = parent;
+                
+        this._updateSides();
+    }
+    
+    getPosition(){
+        return this._mesh.position;
+    }
+    
+    getDimensions(){
+        return [this._hitbox.width, this._hitbox.height, this._hitbox.depth];
+    }
+    
+    _updateSides(){
+        const p = this.getPosition();
+        const [w,h,d] = this.getDimensions()
+        const [r, l, f, b, bo, t] = boxLimits({ 
+            position: p,
+            dimensions: {
+                width: w,
+                height: h,
+                depth: d
+            }
+        });
+        
+        this.right = r;
+        this.left = l;
+        this.front = f;
+        this.back = b;
+        this.bottom = bo;
+        this.top = t    
     }
 }
 
-export default class World extends Entity {
+export class World extends Entity {
     constructor({
         mesh,
-        position = {
+        hitbox = {
+            width,
+            height,
+            depth,
+        },
+        gravity = -0.01
+    }){
+        const position = {
             x: 0,
             y: 0,
             z: 0,
-        },
-        hitbox = {
-            height,
-            width,
-        },
-        grid // data structure used to contain all other entities in the world (e.g. grid hashmap)
-    }){
+        };
+        
         super({
-            mesh: mesh,
-            position: position,
-            hitbox: hitbox,
+            mesh,
+            position,
+            hitbox,
             parent: null // world has no parent
-       }); 
-       
-       this._grid = grid; 
+        });
+                
+        this.gravity = gravity;
+        
+        this._grid = new SpatialGrid([[this.left, this.back],[this.right, this.front]],[5,5]); //data structure for containing all other entities (e.g. linkedlist) 
     }
     
     addEntity(e) {
@@ -70,19 +97,18 @@ export default class World extends Entity {
         }
         
         if(e instanceof Entity) {
-            this.grid.NewClient(e, e._position, e._hitbox);
+            const position = e.getPosition();
+            this._grid.NewClient(e, [position.x, position.z], [e._hitbox.width, e._hitbox.depth]);
         }
     }
-    
-    _callUpdate(e){
-        if(e.update == undefined){
-            return
-        }
-        e.update();
-    }
-    
+
+    // TODO: For now it updates worldwide, later may need to be modified to update only around the character 
     update() {
-        this.grid.IterateOverClients(this._callUpdate);
+        const clients = this._grid.FindNear([this._mesh.position.x, this._mesh.position.z],[this._hitbox.width, this._hitbox.depth]);
+        clients.forEach( (client) => {
+            client.entity.update();
+            this._grid.UpdateClient(client);
+        });
     }
 }
 
@@ -96,19 +122,45 @@ export class Character extends Entity {
             z: 0,
         },
         hitbox = {
-            height,
             width,
+            height,
+            depth
         }
     }){
-        super({
-            mesh: mesh,
-            position: position,
-            hitbox: hitbox,
-            parent: parent 
-       });     
+        super({    
+            mesh,
+            position,
+            hitbox,
+            parent 
+        }); 
+        this.velocity = {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0
+        }
+        
+        this.gravity = parent.gravity;
+        
     }
-    
+        
     update(){
-        this.position.y += 0.01;
+        this._updateSides();
+        // accellerate via gravity
+        try{
+            this.velocity.y += this.gravity; // gravity
+        }catch{
+        }
+        //  hit detect
+        if(boxCollision({
+            box1: this,
+            box2: this._parent
+        })) { 
+
+            this.velocity.y -= this.velocity.y;
+        } else {
+            this._mesh.position.y += this.velocity.y;
+        }
     }
+        
+    
 }
