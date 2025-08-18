@@ -1,21 +1,27 @@
-import {SpatialGrid, boxLimits, boxCollision, STATE} from '/utils.js'
+import {boxLimits, boxCollision, STATE} from '/utils.js'
+import ThirdPersonCamera from './camera.js'
 
 // abstract class for game objects
 class Entity {
+
     constructor({
         mesh,
         parent, // each entity has a parent, world is parent to all (not sure if this is redundant if 3js has it already)
+        world, // world were entity is placed in
         position = {
             x: 0,
             y: 0,
-            z: 0,
+            z: 0
+        }, 
+        encumbrance = { 
+            width: 0, // along x
+            depth: 0   // along z
         },
-        hitbox = {
-            width, // along x
-            height, // along y 
-            depth // along z
+        hitbox = { // cilinder
+            heigth: 0,
+            radius: 0
         }
-    }){
+    }) {
         // Cannot create object of class entity
         if(this.constructor == Entity) {
             throw new Error("Class is of abstract type and can't be instantiated");
@@ -29,7 +35,9 @@ class Entity {
         this._mesh = mesh;
         this._mesh.position.set(position.x, position.y, position.z);
         this._hitbox = hitbox;
+        this._encumbrance = encumbrance;
         this._parent = parent;
+        this._world = world;
                 
         this._updateSides();
     }
@@ -38,11 +46,15 @@ class Entity {
         return this._mesh.position;
     }
     
-    getDimensions(){
-        return [this._hitbox.width, this._hitbox.height, this._hitbox.depth];
+    getRotation(){
+        return this._mesh.quaternion;
     }
     
-    _updateSides(){
+    getDimensions(){
+        return [this._encumbrance.width, this._hitbox.height, this._encumbrance.depth];
+    }
+    
+    _updateSides(){ // for now everything is a box later thi method may need to change
         const p = this.getPosition();
         const [w,h,d] = this.getDimensions()
         const [r, l, f, b, bo, t] = boxLimits({ 
@@ -63,91 +75,52 @@ class Entity {
     }
 }
 
-export class World extends Entity {
-    constructor({
-        mesh,
-        hitbox = {
-            width,
-            height,
-            depth,
-        },
-        gravity = -0.01
-    }){
-        const position = {
-            x: 0,
-            y: 0,
-            z: 0,
-        };
-        
-        super({
-            mesh,
-            position,
-            hitbox,
-            parent: null // world has no parent
-        });
-                
-        this.gravity = gravity;
-        
-        this._grid = new SpatialGrid([[this.left, this.back],[this.right, this.front]],[5,5]); //data structure for containing all other entities (e.g. linkedlist) 
-    }
-    
-    addEntity(e) {
-        if(e instanceof World) {
-            throw new Error("cannot add World object to World's entities");
-        }
-        
-        if(e instanceof Entity) {
-            const position = e.getPosition();
-            this._grid.NewClient(e, [position.x, position.z], [e._hitbox.width, e._hitbox.depth]);
-        }
-    }
-
-    // TODO: For now it updates worldwide, later may need to be modified to update only around the character 
-    update(keys) {
-        const clients = this._grid.FindNear([this._mesh.position.x, this._mesh.position.z],[this._hitbox.width, this._hitbox.depth]);
-        clients.forEach( (client) => {
-            if(client.entity.constructor == Character){
-                client.entity.update(keys);
-            } else {
-                client.entity.update();
-            }
-            this._grid.UpdateClient(client);
-        });
-    }
-}
-
 export class Character extends Entity {
     constructor({
         mesh,
         camera,
         parent, // each entity has a parent, world is parent to all (not sure if this is redundant if 3js has it already)
+        world,
+        controller,
         position = {
             x: 0,
             y: 0,
-            z: 0,
+            z: 0
+        },        
+        encumbrance = {
+            width: 0, // along x
+            depth: 0   // along z
         },
-        hitbox = {
-            width,
-            height,
-            depth
-        }
-    }){
+        hitbox = { // cilinder
+            heigth: 0,
+            radius: 0
+        },
+    }) {
         super({    
             mesh,
+            parent,
+            world,
             position,
-            hitbox,
-            parent 
+            encumbrance,
+            hitbox
         }); 
         this.velocity = {
             x: 0.0,
             y: 0.0,
             z: 0.0
         }
+        this.angular = {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0
+        }
         
         this.state = STATE.IDLE;
-        this.gravity = parent.gravity;
-        this._camera = camera;
-        this._camera.position.set(position.x+2, position.y+2, position.z+5);
+        this.gravity = world.gravity;
+        this._camera = new ThirdPersonCamera(camera, mesh);
+        this._controller = controller;
+        
+        this._camera.update();
     
     }
     
@@ -160,7 +133,10 @@ export class Character extends Entity {
         //this._camera.position.set(position.x+2, position.y+2, position.z+2);
     }
     
-    _updateCommand(keys){
+    _updateCommand(){
+        const keys = this._controller._keys;
+        const mouse = this._controller._mouse;
+    
         let speed = 0.0;
 
         if(keys.shft.pressed) {
@@ -170,13 +146,19 @@ export class Character extends Entity {
         }
         this.velocity.x = 0;
         this.velocity.z = 0;
+        this.angular.y = 0;
         if (this.state != STATE.FALLING) this.velocity.y = 0;
         
-        if(keys.a.pressed) this.velocity.x -= speed;
-        else if(keys.d.pressed) this.velocity.x += speed;
+        if(keys.a.pressed) this.velocity.x += speed;
+        else if(keys.d.pressed) this.velocity.x -= speed;
     
-        if(keys.s.pressed) this.velocity.z += speed;
-        else if(keys.w.pressed) this.velocity.z -= speed; 
+        if(keys.s.pressed) this.velocity.z -= speed;
+        else if(keys.w.pressed) this.velocity.z += speed; 
+        
+        /*if(keys.ar.pressed) this.angular.y -= 0.01;
+        else if(keys.al.pressed) this.angular.y += 0.01*/
+        
+        this.angular.y += mouse.move.x;
         
         if(keys.spc.active && this.state != STATE.JUMPING && this.state != STATE.FALLING){
             keys.spc.active = false;
@@ -186,7 +168,7 @@ export class Character extends Entity {
         if(this._isIdle()){
             this.state = STATE.IDLE;
         } else if (keys.shft.pressed) {
-            this.state = STATE.RUNNING;
+          this._camera.update();  this.state = STATE.RUNNING;
         } else {
             this.state = STATE.WALKING;
         }
@@ -215,19 +197,58 @@ export class Character extends Entity {
     }
 
     _updatePosition(){
-        this._mesh.position.x += this.velocity.x;
+        this._mesh.translateX(this.velocity.x);
         this._mesh.position.y += this.velocity.y;
-        this._mesh.position.z += this.velocity.z;
+        this._mesh.translateZ(this.velocity.z);
+        this._mesh.rotation.y += this.angular.y;
+
+        this._camera.update();
     }
 
-    update(keys){
+    update(){
         this._updateSides();
         
         this._updateGravity();
-        this._updateCommand(keys);
+        this._updateCommand();
         this._updatePosition();
         this._updateView();
         
-        if(this.state != STATE.IDLE) console.log(this.state);
+        //if(this.state != STATE.IDLE) console.log(this.state);
+    }
+}
+
+// a walkable platform in our world
+export class Walkable extends Entity {
+    constructor({
+        mesh,
+        parent, // each entity has a parent, world is parent to all (not sure if this is redundant if 3js has it already)
+        world,
+        position = {
+            x: 0,
+            y: 0,
+            z: 0
+        },         
+        encumbrance = {
+            width: 0, // along x
+            depth: 0   // along z
+        },
+        hitbox = { // cilinder
+            heigth: 0,
+            radius: 0
+        }
+    }) {
+        super({    
+            mesh,
+            parent,
+            world, // world were entity is placed in
+            position,
+            encumbrance,
+            hitbox
+        }); 
+    }
+    
+    update(){
+        //console.log("im updating")
+        return;
     }
 }

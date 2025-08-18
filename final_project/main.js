@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import {World, Character} from './entities.js'
-import * as CTRL from './controls.js'
+import World from './world.js'
+import {Character, Walkable} from './entities.js'
+import {BasicController} from './controls.js'
 
 // initialize scene
 const w = window.innerWidth;
@@ -33,37 +34,62 @@ const char_material = new THREE.MeshStandardMaterial({ color: 'green' });
 const char_mesh = new THREE.Mesh(char_geometry, char_material);
 char_mesh.castShadow = true;
 
-const world = new World({ 
-    mesh:ground_mesh, 
-    hitbox:{
-        width:100, 
-        height:0.5, 
-        depth:100
+const world = new World([[-1000,-1000],[1000,1000]],[101,101]);
+
+const platform = new Walkable({
+    mesh: ground_mesh,
+    position: {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0
     },
+    encumbrance: {
+        width: 100,
+        depth: 100
+    },    
+    hitbox: {
+        height: 0.5,
+        radius: 50
+    },
+    parent: null,
+    world: world
 });
 
 const crtr = new Character({
     mesh: char_mesh,
     camera: camera,
+    controller: new BasicController(),
     position: {
-        x:0,
-        y:1.5,
-        z:0
+        x: 0.0,
+        y: 1.5,
+        z: 0.0
+    },
+    encumbrance: {
+        width: 0.8,
+        depth: 0.8
     },
     hitbox: {
-        width: 1,
         height: 1.7,
-        depth: 1
+        radius: 0.4
     },
-    parent: world
+    parent: platform,
+    world: world
 });
 
-world.addEntity(crtr);
+const temp = new THREE.Vector3();
+char_mesh.getWorldDirection(temp);
+console.log(temp);
+ground_mesh.getWorldDirection(temp);
+console.log(temp);
 
-scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+
+world.addPlayerCharacter(crtr);
+world.NewClient(platform);
+
+//scene.add(new THREE.AmbientLight(0xffffff, 0.5));
 const dirlight = new THREE.DirectionalLight( 0xffffff, 1);
-dirlight.position.y = 3;
-dirlight.position.z = 1;
+dirlight.position.y = 30;
+dirlight.position.z = -100;
 dirlight.castShadow = true;
 scene.add(dirlight);
 scene.add(ground_mesh);
@@ -82,7 +108,7 @@ function animate(){
     const animationId = requestAnimationFrame(animate);
     renderer.render(scene, camera);
     
-    world.update(CTRL.keys);
+    world.update();
 
     frames++;
 }
