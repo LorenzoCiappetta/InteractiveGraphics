@@ -1,4 +1,4 @@
-import {SpatialGrid, boxLimits, boxCollision} from '/utils.js'
+import {SpatialGrid, boxLimits, boxCollision, STATE} from '/utils.js'
 
 // abstract class for game objects
 class Entity {
@@ -103,10 +103,14 @@ export class World extends Entity {
     }
 
     // TODO: For now it updates worldwide, later may need to be modified to update only around the character 
-    update() {
+    update(keys) {
         const clients = this._grid.FindNear([this._mesh.position.x, this._mesh.position.z],[this._hitbox.width, this._hitbox.depth]);
         clients.forEach( (client) => {
-            client.entity.update();
+            if(client.entity.constructor == Character){
+                client.entity.update(keys);
+            } else {
+                client.entity.update();
+            }
             this._grid.UpdateClient(client);
         });
     }
@@ -115,6 +119,7 @@ export class World extends Entity {
 export class Character extends Entity {
     constructor({
         mesh,
+        camera,
         parent, // each entity has a parent, world is parent to all (not sure if this is redundant if 3js has it already)
         position = {
             x: 0,
@@ -139,28 +144,90 @@ export class Character extends Entity {
             z: 0.0
         }
         
+        this.state = STATE.IDLE;
         this.gravity = parent.gravity;
-        
+        this._camera = camera;
+        this._camera.position.set(position.x+2, position.y+2, position.z+5);
+    
     }
-        
-    update(){
-        this._updateSides();
-        // accellerate via gravity
-        try{
-            this.velocity.y += this.gravity; // gravity
-        }catch{
+    
+    _isIdle(){
+        return this.velocity.x == 0 && this.velocity.y == 0 && this.velocity.z == 0;
+    }
+
+    _updateView(){
+        const position = this._mesh.position;
+        //this._camera.position.set(position.x+2, position.y+2, position.z+2);
+    }
+    
+    _updateCommand(keys){
+        let speed = 0.0;
+
+        if(keys.shft.pressed) {
+            speed += 0.15;
+        } else {
+            speed += 0.07;
         }
+        this.velocity.x = 0;
+        this.velocity.z = 0;
+        if (this.state != STATE.FALLING) this.velocity.y = 0;
+        
+        if(keys.a.pressed) this.velocity.x -= speed;
+        else if(keys.d.pressed) this.velocity.x += speed;
+    
+        if(keys.s.pressed) this.velocity.z += speed;
+        else if(keys.w.pressed) this.velocity.z -= speed; 
+        
+        if(keys.spc.active && this.state != STATE.JUMPING && this.state != STATE.FALLING){
+            keys.spc.active = false;
+            this.velocity.y += 0.15;
+        }
+        
+        if(this._isIdle()){
+            this.state = STATE.IDLE;
+        } else if (keys.shft.pressed) {
+            this.state = STATE.RUNNING;
+        } else {
+            this.state = STATE.WALKING;
+        }
+        
+        if (this.velocity.y < 0 ){
+            this.state = STATE.FALLING;
+        } else if (this.velocity.y > 0 ) {
+            this.state = STATE.JUMPING;
+        }
+    }
+
+    _updateGravity(){
         //  hit detect
         if(boxCollision({
             box1: this,
             box2: this._parent
         })) { 
-
-            this.velocity.y -= this.velocity.y;
+            this.velocity.y = 0.0;
         } else {
-            this._mesh.position.y += this.velocity.y;
+            // accellerate via gravity with terminal velocity
+            this.state = STATE.FALLING;
+            if (this.velocity.y >= -5) {
+                this.velocity.y += this.gravity; // gravity
+            }
         }
     }
+
+    _updatePosition(){
+        this._mesh.position.x += this.velocity.x;
+        this._mesh.position.y += this.velocity.y;
+        this._mesh.position.z += this.velocity.z;
+    }
+
+    update(keys){
+        this._updateSides();
         
-    
+        this._updateGravity();
+        this._updateCommand(keys);
+        this._updatePosition();
+        this._updateView();
+        
+        if(this.state != STATE.IDLE) console.log(this.state);
+    }
 }

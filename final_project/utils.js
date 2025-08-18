@@ -1,3 +1,12 @@
+// State entities can be in the game (cfr finite state automaton)
+export const STATE = Object.freeze({ // trying to replicate C's enum types
+    JUMPING:   Symbol("jumping"),
+    IDLE:  Symbol("idle"),
+    WALKING: Symbol("walking"),
+    RUNNING: Symbol("running"),
+    FALLING: Symbol("falling")
+});
+
 // World Gridmap
 export class SpatialGrid {
     constructor(bounds, dimensions) {
