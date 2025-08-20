@@ -17,15 +17,16 @@ export default class ThirdPersonCamera {
     }
     
     update(timeElapsed) {
+    
         const idealLookat = new THREE.Vector3(-1.5,1.0,5.0);
         this._CalculateIdeal(idealLookat);
-        const idealOffset = new THREE.Vector3(-1,2.5,-3.5);    
+        const idealOffset = new THREE.Vector3(-1,2.5,-10.5);    
         this._CalculateIdeal(idealOffset);
         
-        //const t = 1.0 - Math.pow(0.001, timeElapsed); //TODO: add time elapsed to simulation
+        const t = 1.0 - Math.pow(0.001, timeElapsed); //TODO: add time elapsed to simulation
         
-        this._currentPosition.copy(idealOffset);//lerp(idealOffset, t);
-        this._currentLookat.copy(idealLookat);//lerp(idealLookat, t);
+        this._currentPosition.lerp(idealOffset, t);
+        this._currentLookat.lerp(idealLookat, t);
         
         this._camera.position.copy(this._currentPosition);
         this._camera.lookAt(this._currentLookat);

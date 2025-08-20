@@ -1,5 +1,5 @@
 // World Gridmap
-export class SpatialGrid {
+export default class SpatialGrid {
     constructor(bounds, dimensions) {
         const [x, y] = dimensions;
         this._bounds = bounds;
@@ -9,7 +9,7 @@ export class SpatialGrid {
         this._queryIds = 0;
     }
     
-    NewClient(entity){
+    newClient(entity){
     
         if( entity.getPosition == undefined || entity.getDimensions == undefined){
             throw new Error("Entities in grid are required to have dimensions and a position");        
@@ -35,6 +35,7 @@ export class SpatialGrid {
         const [w, h, d] = client.entity.getDimensions();
         const i1 = this._GetCellIndex([x - w /2, z - d / 2]);
         const i2 = this._GetCellIndex([x + w / 2, z + d / 2]);
+        //console.log("a client is between cells",i1, i2);
         const nodes = [];
         
         for(let x = i1[0], xn = i2[0]; x <= xn; ++x){
@@ -133,7 +134,7 @@ export class SpatialGrid {
         this.RemoveClient(client);
         this._Insert(client);
 
-}
+    }
     
     RemoveClient(client) {
         const i1 = client._cells.min;
@@ -163,31 +164,4 @@ export class SpatialGrid {
         client._cells.nodes = null; 
     }
     
-}
-
-export default class World extends SpatialGrid {
-    constructor(bounds, dimensions, gravity = -0.01){
-        
-        super(bounds, dimensions);
-                
-        this.gravity = gravity;
-    }
-    
-    addPlayerCharacter(c) {
-        this._character = c;
-        this.NewClient(c);
-    }
-
-    // TODO: For now it updates worldwide, later may need to be modified to update only around the character 
-    update() {
-        const w = this._bounds[1][0] - this._bounds[0][0];
-        const h = this._bounds[1][1] - this._bounds[0][1];
-        const clients = this.FindNear([0, 0],[w, h]);
-        clients.forEach( (client) => {
-            
-            client.entity.update();
-            
-            this.UpdateClient(client);
-        });
-    }
 }

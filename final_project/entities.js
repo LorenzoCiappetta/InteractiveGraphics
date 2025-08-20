@@ -1,11 +1,14 @@
-import {boxLimits, boxCollision, STATE} from '/utils.js'
+import * as THREE from 'three';
+import {boxLimits, boxCollision} from '/utils.js'
 import ThirdPersonCamera from './camera.js'
+import {CharacterController} from './controls.js'
 
 // abstract class for game objects
-class Entity {
+class Entity extends THREE.Mesh {
 
     constructor({
-        mesh,
+        geometry,
+        material,
         parent, // each entity has a parent, world is parent to all (not sure if this is redundant if 3js has it already)
         world, // world were entity is placed in
         position = {
@@ -22,20 +25,22 @@ class Entity {
             radius: 0
         }
     }) {
+        super(geometry, material);
         // Cannot create object of class entity
-        if(this.constructor == Entity) {
+        /*if(this.constructor == Entity) {
             throw new Error("Class is of abstract type and can't be instantiated");
-        }; 
+        };*/ // not sure if this makes sense semantically  
         
         // All entities require these methods
         if(this.update == undefined) {
             throw new Error("update method must be implemented");        
         }
         
-        this._mesh = mesh;
-        this._mesh.position.set(position.x, position.y, position.z);
+        
+        this.position.set(position.x, position.y, position.z);
         this._hitbox = hitbox;
-        this._encumbrance = encumbrance;
+        this._encumbrance = new THREE.Vector3(encumbrance.width, hitbox.height, encumbrance.depth);
+        this.parent = parent; // redundant but did not find better solution
         this._parent = parent;
         this._world = world;
                 
@@ -43,27 +48,23 @@ class Entity {
     }
     
     getPosition(){
-        return this._mesh.position;
+        return this.position;
     }
     
     getRotation(){
-        return this._mesh.quaternion;
+        return this.quaternion;
     }
     
     getDimensions(){
-        return [this._encumbrance.width, this._hitbox.height, this._encumbrance.depth];
+        return this._encumbrance;
     }
     
     _updateSides(){ // for now everything is a box later thi method may need to change
         const p = this.getPosition();
-        const [w,h,d] = this.getDimensions()
+        const d = this.getDimensions();
         const [r, l, f, b, bo, t] = boxLimits({ 
             position: p,
-            dimensions: {
-                width: w,
-                height: h,
-                depth: d
-            }
+            dimensions: d
         });
         
         this.right = r;
@@ -77,11 +78,11 @@ class Entity {
 
 export class Character extends Entity {
     constructor({
-        mesh,
+        geometry,
+        material,
         camera,
         parent, // each entity has a parent, world is parent to all (not sure if this is redundant if 3js has it already)
         world,
-        controller,
         position = {
             x: 0,
             y: 0,
@@ -97,130 +98,38 @@ export class Character extends Entity {
         },
     }) {
         super({    
-            mesh,
+            geometry,
+            material,
             parent,
             world,
             position,
             encumbrance,
             hitbox
         }); 
-        this.velocity = {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0
-        }
-        this.angular = {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0
-        }
-        
-        this.state = STATE.IDLE;
+        this.castShadow = true;
+                
         this.gravity = world.gravity;
-        this._camera = new ThirdPersonCamera(camera, mesh);
-        this._controller = controller;
+        this._camera = new ThirdPersonCamera(camera, this);
+        this._controller = new CharacterController(this);
         
-        this._camera.update();
+        this._camera.update(0);
     
     }
     
-    _isIdle(){
-        return this.velocity.x == 0 && this.velocity.y == 0 && this.velocity.z == 0;
-    }
-
-    _updateView(){
-        const position = this._mesh.position;
-        //this._camera.position.set(position.x+2, position.y+2, position.z+2);
-    }
-    
-    _updateCommand(){
-        const keys = this._controller._keys;
-        const mouse = this._controller._mouse;
-    
-        let speed = 0.0;
-
-        if(keys.shft.pressed) {
-            speed += 0.15;
-        } else {
-            speed += 0.07;
-        }
-        this.velocity.x = 0;
-        this.velocity.z = 0;
-        this.angular.y = 0;
-        if (this.state != STATE.FALLING) this.velocity.y = 0;
-        
-        if(keys.a.pressed) this.velocity.x += speed;
-        else if(keys.d.pressed) this.velocity.x -= speed;
-    
-        if(keys.s.pressed) this.velocity.z -= speed;
-        else if(keys.w.pressed) this.velocity.z += speed; 
-        
-        /*if(keys.ar.pressed) this.angular.y -= 0.01;
-        else if(keys.al.pressed) this.angular.y += 0.01*/
-        
-        this.angular.y += mouse.move.x;
-        
-        if(keys.spc.active && this.state != STATE.JUMPING && this.state != STATE.FALLING){
-            keys.spc.active = false;
-            this.velocity.y += 0.15;
-        }
-        
-        if(this._isIdle()){
-            this.state = STATE.IDLE;
-        } else if (keys.shft.pressed) {
-          this._camera.update();  this.state = STATE.RUNNING;
-        } else {
-            this.state = STATE.WALKING;
-        }
-        
-        if (this.velocity.y < 0 ){
-            this.state = STATE.FALLING;
-        } else if (this.velocity.y > 0 ) {
-            this.state = STATE.JUMPING;
-        }
-    }
-
-    _updateGravity(){
-        //  hit detect
-        if(boxCollision({
-            box1: this,
-            box2: this._parent
-        })) { 
-            this.velocity.y = 0.0;
-        } else {
-            // accellerate via gravity with terminal velocity
-            this.state = STATE.FALLING;
-            if (this.velocity.y >= -5) {
-                this.velocity.y += this.gravity; // gravity
-            }
-        }
-    }
-
-    _updatePosition(){
-        this._mesh.translateX(this.velocity.x);
-        this._mesh.position.y += this.velocity.y;
-        this._mesh.translateZ(this.velocity.z);
-        this._mesh.rotation.y += this.angular.y;
-
-        this._camera.update();
-    }
-
-    update(){
+    update(timeElapsed){
         this._updateSides();
         
-        this._updateGravity();
-        this._updateCommand();
-        this._updatePosition();
-        this._updateView();
+        this._controller.update(timeElapsed);
+        this._camera.update(timeElapsed);
         
-        //if(this.state != STATE.IDLE) console.log(this.state);
     }
 }
 
 // a walkable platform in our world
 export class Walkable extends Entity {
     constructor({
-        mesh,
+        geometry,
+        material,
         parent, // each entity has a parent, world is parent to all (not sure if this is redundant if 3js has it already)
         world,
         position = {
@@ -238,17 +147,84 @@ export class Walkable extends Entity {
         }
     }) {
         super({    
-            mesh,
+            geometry,
+            material,
             parent,
             world, // world were entity is placed in
             position,
             encumbrance,
             hitbox
         }); 
+        this.receiveShadow = true;
     }
     
-    update(){
-        //console.log("im updating")
+    update(_){
         return;
+    }
+}
+
+export class Obstacle extends Entity {
+    constructor({
+        geometry,
+        material,
+        parent, // each entity has a parent, world is parent to all (not sure if this is redundant if 3js has it already)
+        world,
+        position = {
+            x: 0,
+            y: 0,
+            z: 0
+        },         
+        encumbrance = {
+            width: 0, // along x
+            depth: 0   // along z
+        },
+        hitbox = { // cilinder
+            heigth: 0,
+            radius: 0
+        }
+    }) {
+        super({    
+            geometry,
+            material,
+            parent,
+            world, // world were entity is placed in
+            position,
+            encumbrance,
+            hitbox
+        }); 
+        this.castShadow = true;
+        this.gravity = world.gravity;        
+        this.velocity = {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0
+        };
+        
+    }
+    
+    _updateGravity(){
+        //  hit detect
+        if(boxCollision({
+            box1: this,
+            box2: this._parent
+        })) { 
+            this.velocity.y = 0.0;
+        } else {
+            // accellerate via gravity with terminal velocity
+            if (this.velocity.y >= -5) {
+                this.velocity.y += this.gravity; // gravity
+            }
+        }
+    }   
+    
+    _updatePosition(){
+        
+        this.position.y += this.velocity.y;
+    }    
+    
+    update(_) {
+        this._updateSides();
+        this._updateGravity();
+        this._updatePosition();
     }
 }
