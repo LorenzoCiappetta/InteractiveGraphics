@@ -17,11 +17,11 @@ export class CharacterController {
         this._runacceleration = new THREE.Vector3(0.8, 0.0, 0.8);
         this._jumpacceleration = new THREE.Vector3(0.0, 3.0, 0.0); // very high impulse
         this._fallacceleration = new THREE.Vector3(0.06, this._character.gravity, 0.06);
+        this._decceleration = new THREE.Vector3(-0.07, 0.0, -0.07); // to prevent abrupt change in velocity
         
         // max velocity reached by character
-        this._maxwalkvelocity = new THREE.Vector3(1.8, 0.0, 2.0);
-        this._maxrunvelocity = new THREE.Vector3(3.0, 0.0, 4.0);
-        this._maxfallvelocity = new THREE.Vector3(0.5, 5, 0.5);
+        this._maxwalkvelocity = new THREE.Vector3(1.8, 5.0, 2.0);
+        this._maxrunvelocity = new THREE.Vector3(3.0, 5.0, 4.0);
         
         // velocity of character
         this._velocity = new THREE.Vector3(0.0, 0.0, 0.0);
@@ -62,11 +62,12 @@ export class CharacterController {
             if ( this._FSA._current.getName() == 'fall') {
                 
                 acc.copy(this._fallacceleration);
-                if( this._velocity.y < 0.0001) m_v.copy(this._maxfallvelocity); // want to keep momentum while jumping, not as much when falling
-                else if ( keys.shft.pressed ) m_v.copy(this._maxrunvelocity);
+                if ( keys.shft.pressed ) m_v.copy(this._maxrunvelocity);
                 else m_v.copy(this._maxwalkvelocity);
             
             } else {
+                
+                this._velocity.y = 0;
                 
                 if ( keys.shft.pressed ) {
                     acc.copy(this._runacceleration);
@@ -78,10 +79,15 @@ export class CharacterController {
             
             }
             
+            // computing velocities
+            if ( this._FSA._current.getName() != 'fall' ) {
+                this._velocity.y = 0.0;
+            }
+            
             if ( this._FSA._current.getName() == 'jump' ) {
                 this._velocity.y += this._jumpacceleration.y; // * timeInSeconds; // jump is instantaneus impulse thus must not consider elapsed time
             }
-            
+        
             this._velocity.y += acc.y * timeInSeconds;
         
             if (keys.w.pressed) this._velocity.z += acc.z * timeInSeconds;
@@ -90,27 +96,26 @@ export class CharacterController {
             if (keys.a.pressed) this._velocity.x += acc.x * timeInSeconds;
             else if (keys.d.pressed) this._velocity.x -= acc.x * timeInSeconds;
             
-            // clamping velocities
-            if ( this._velocity.x > m_v.x) this._velocity.x = m_v.x;
-            else if ( this._velocity.x < -m_v.x ) this._velocity.x = -m_v.x;
+            // clamping velocities (with decelleration)
+            if ( this._velocity.x > m_v.x) this._velocity.x += this._decceleration.x;
+            else if ( this._velocity.x < -m_v.x ) this._velocity.x -= this._decceleration.x;
             
-            if ( this._velocity.z > m_v.z) this._velocity.z = m_v.z;
-            else if ( this._velocity.z < -m_v.z ) this._velocity.z = -m_v.z; 
+            if ( this._velocity.z > m_v.z) this._velocity.z += this._decceleration.z;
+            else if ( this._velocity.z < -m_v.z ) this._velocity.z -= this._decceleration.z; 
             
             if ( this._velocity.y < -m_v.y) this._velocity.y = -m_v.y; // no need to limit up wards velocity while falling
         
         }
 
         // Control Rotation
-        
         const Q = new THREE.Quaternion();
-        const R = this._character.quaternion.clone();
         const A = new THREE.Vector3(0.0, 1.0, 0.0); // yaw axis
         
         Q.setFromAxisAngle(A, mouse.move.x * timeInSeconds);
-        R.multiply(Q);
-        this._character.quaternion.copy(R);
-        //this._angular.y += mouse.move.x * timeInSeconds;
+        this._character.quaternion.multiply(Q);
+        
+        this._character._camera.Lookat.y += mouse.move.y * timeInSeconds
+
         this._controller.cancelMouse();
         
         this._updateMovement(timeInSeconds);
@@ -377,7 +382,7 @@ class FallState extends State {
 // Controlls
 class BasicInputController {
     constructor(fov=60) {
-        this._sensitivity = 40.0;
+        this._sensitivity = 60.0;
         this._fov = fov;
     
         this._keys = {
@@ -395,7 +400,8 @@ class BasicInputController {
             },
             spc: {
                 pressed: false,
-                active: false
+                active: false,
+                waiting: false,
             },
             shft: {
                 pressed: false
@@ -438,7 +444,9 @@ class BasicInputController {
                 this._keys.w.pressed = true;
                 break;  
             case 'Space':
-                this._keys.spc.pressed = true;
+                if (!this._keys.spc.waiting) this._keys.spc.pressed = true;
+                else this._keys.spc.pressed = false;
+                this._keys.spc.waiting = true;
                 break;
             case 'ArrowLeft':
                 this._keys.al.pressed = true;
@@ -470,6 +478,7 @@ class BasicInputController {
                 break;
             case 'Space':
                 this._keys.spc.pressed = false;
+                this._keys.spc.waiting = false;
                 break;
             case 'ArrowLeft':
                 this._keys.al.pressed = false;
