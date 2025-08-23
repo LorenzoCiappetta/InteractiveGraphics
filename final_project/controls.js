@@ -15,7 +15,7 @@ export class CharacterController {
         // tweak these values to control movement
         this._walkacceleration = new THREE.Vector3(0.5, 0.0, 0.5);
         this._runacceleration = new THREE.Vector3(0.8, 0.0, 0.8);
-        this._jumpacceleration = new THREE.Vector3(0.0, 3.0, 0.0); // very high impulse
+        this._jumpacceleration = new THREE.Vector3(0.0, 6.0, 0.0); // very high impulse
         this._fallacceleration = new THREE.Vector3(0.06, this._character.gravity, 0.06);
         this._decceleration = new THREE.Vector3(-0.07, 0.0, -0.07); // to prevent abrupt change in velocity
         
@@ -26,6 +26,8 @@ export class CharacterController {
         // velocity of character
         this._velocity = new THREE.Vector3(0.0, 0.0, 0.0);
         this._angular = new THREE.Vector3(0.0, 0.0, 0.0);
+                
+        this.falling = true;                
                 
         //this._animations{};
         //this._LoadModels();
@@ -45,7 +47,31 @@ export class CharacterController {
         }
         
         // checks collisions at previous frame
+        const collisions = this._character._collisions;
+        collisions.sort((a, b) => {
+            return a.overlap < b.overlap;
+        });
+        
+        for ( const collision of collisions) {
+        
+            let normal = collision.normal.clone();
+            let delta = collision.overlap;
+            
+            //console.log("normal is:",normal);
+            // fall check
+            if ( normal.y > 0 ) this.falling = false;
+            
+            this._character.translateOnAxis(normal, delta);
+            ////
+            let magnitude = this._velocity.dot(normal);
+            let velocityAdjustment = normal.multiplyScalar(magnitude);
+        
+            this._velocity.sub(velocityAdjustment);
+        
+        }        
+        
         this._FSA.update(timeInSeconds, this._controller);
+        //console.log(this._FSA._current.getName());
 
         const keys = this._controller._keys;
         const mouse = this._controller._mouse;
@@ -125,7 +151,7 @@ export class CharacterController {
     _updateMovement (timeInSeconds) {
     
         // checks collisions at current frame
-        const char_bottom = this._character.bottom;
+        /*const char_bottom = this._character.bottom;
         const floor_top = this._character._parent.top;
         
         if ((char_bottom + (this._velocity.y * timeInSeconds)) - floor_top <= 0.001) {
@@ -134,13 +160,16 @@ export class CharacterController {
         } else {
             // falling follows absolute (world) frame of reference
             this._character.position.y += (this._velocity.y * timeInSeconds);        
-        }
+        }*/
 
+        // falling follows absolute (world) frame of reference
+        this._character.position.y += (this._velocity.y * timeInSeconds);
         // movement along x and z follows character frame of reference
         this._character.translateX((this._velocity.x * timeInSeconds));
         this._character.translateZ((this._velocity.z * timeInSeconds));
 
-        this._character.rotation.y += this._angular.y;    
+        this._character.rotation.y += this._angular.y;
+        this.falling = true;
     }
 };
 
@@ -171,11 +200,9 @@ class BasicFSA {
     
     update(timeElapsed, input) {
         if (this._current) {
-            console.log(this._current.getName());
             this._current.update(timeElapsed, input);
         } else {
             this.setState('idle');
-            console.log(this._current.getName());
         }
         
     }
@@ -216,10 +243,6 @@ class IdleState extends State {
     }
     
     update(_, input) {
-        const collision = boxCollision({
-            box1: this._parent._controller._character,
-            box2: this._parent._controller._character._parent
-        })    
         
         if (input._keys.w.pressed || 
             input._keys.a.pressed || 
@@ -234,7 +257,7 @@ class IdleState extends State {
         } else if (input._keys.spc.pressed && !input._keys.spc.active) {
             input._keys.spc.active = true;
             this._parent.setState('jump');
-        } else if (input._keys.spc.active || !collision) {
+        } else if (input._keys.spc.active || this._parent._controller.falling) {
             input._keys.spc.active = true;
             this._parent.setState('fall'); 
         }
@@ -251,17 +274,13 @@ class WalkState extends State {
     }
    
     update(_, input) {
-        const collision = boxCollision({
-            box1: this._parent._controller._character,
-            box2: this._parent._controller._character._parent
-        })
         
         if (input._keys.spc.pressed && !input._keys.spc.active) {
         
             input._keys.spc.active = true;
             this._parent.setState('jump');
             
-        } else if (input._keys.spc.active || !collision) {
+        } else if (input._keys.spc.active || this._parent._controller.falling) {
         
             input._keys.spc.active = true;
             this._parent.setState('fall'); 
@@ -295,17 +314,13 @@ class RunState extends State {
     }
 
     update(_, input) {
-        const collision = boxCollision({
-            box1: this._parent._controller._character,
-            box2: this._parent._controller._character._parent
-        })
         
         if (input._keys.spc.pressed && !input._keys.spc.active) {
         
             input._keys.spc.active = true;
             this._parent.setState('jump');
         
-        } else if (input._keys.spc.active || !collision) {
+        } else if (input._keys.spc.active || this._parent._controller.falling) {
             
             this._parent.setState('fall');
         
@@ -340,7 +355,7 @@ class JumpState extends State {
 
     update(_, input) {
         
-        this._parent.setState('fall'); // TODO: fix falling
+        this._parent.setState('fall'); 
         
     }
 }
@@ -355,12 +370,8 @@ class FallState extends State {
     }
 
     update(_, input) {
-        const collision = boxCollision({
-            box1: this._parent._controller._character,
-            box2: this._parent._controller._character._parent
-        })
             
-        if(collision) {
+        if(!this._parent._controller.falling) {
             input._keys.spc.active = false;
             if (input._keys.w.pressed || 
                 input._keys.a.pressed || 

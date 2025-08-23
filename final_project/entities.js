@@ -2,64 +2,68 @@ import * as THREE from 'three';
 import {boxLimits, boxCollision} from '/utils.js'
 import ThirdPersonCamera from './camera.js'
 import {CharacterController} from './controls.js'
+import {StandardCollider} from './collisions.js'
 
 // abstract class for game objects
 class Entity extends THREE.Mesh {
-
+    
     constructor({
         geometry,
         material,
         parent, // each entity has a parent, world is parent to all (not sure if this is redundant if 3js has it already)
         world, // world were entity is placed in
-        position = {
-            x: 0,
-            y: 0,
-            z: 0
-        }, 
+        position, 
+        hitbox,
         encumbrance = { 
             width: 0, // along x
             depth: 0   // along z
-        },
-        hitbox = { // cilinder
-            heigth: 0,
-            radius: 0
         }
     }) {
         super(geometry, material);
-        // Cannot create object of class entity
-        /*if(this.constructor == Entity) {
-            throw new Error("Class is of abstract type and can't be instantiated");
-        };*/ // not sure if this makes sense semantically  
-        
-        // All entities require these methods
+
         if(this.update == undefined) {
             throw new Error("update method must be implemented");        
         }
-        
-        
-        this.position.set(position.x, position.y, position.z);
-        this._hitbox = hitbox;
-        this._encumbrance = new THREE.Vector3(encumbrance.width, hitbox.height, encumbrance.depth);
-        this.parent = parent; // redundant but did not find better solution
-        this._parent = parent;
-        this._world = world;
                 
+        this._world = world;        
+        this._world.addToScene(this);
+        
+        if( parent ) {
+            this._parent = parent;
+            this.parent = parent; // redundant but did not find better solution
+        }
+        
+        this._hitbox = hitbox;
+        this._world.addToScene(this._hitbox)
+        this.add(this._hitbox);
+                
+        this.position.set(position.x, position.y, position.z);
+
+        this._encumbrance = new THREE.Vector3(encumbrance.width, hitbox.height, encumbrance.depth);                
         this._updateSides();
+        
+        // collision detection        
+        this._collider = null;
+        this._collisions = [];
     }
     
     getPosition(){
-        return this.position;
+        const p = new THREE.Vector3();
+        this.getWorldPosition(p);
+        return p;
     }
     
     getRotation(){
-        return this.quaternion;
+        const q = new THREE.Quaternion();
+        this.getWorldQuaternion(q);
+        return q;
     }
     
     getDimensions(){
         return this._encumbrance;
     }
-    
-    _updateSides(){ // for now everything is a box later thi method may need to change
+
+    _updateSides(){ // for now everything is a box later thi method may need to change // TODO: OUTDATED, fix
         const p = this.getPosition();
         const d = this.getDimensions();
         const [r, l, f, b, bo, t] = boxLimits({ 
@@ -74,28 +78,37 @@ class Entity extends THREE.Mesh {
         this.bottom = bo;
         this.top = t    
     }
+    
+    getHitBox() {
+        return this._hitbox;
+    }
+  
+    checkCollision(entity) {
+        if(this._collider) {
+            const collision = this._collider.collision(this, entity);
+            if(collision) this._collisions.push(collision);
+        }
+    }
+      
+    clearCollisions() {
+        this._collisions = [];
+    }
 }
 
 export class Character extends Entity {
+
     constructor({
         geometry,
         material,
         camera,
         parent, // each entity has a parent, world is parent to all (not sure if this is redundant if 3js has it already)
         world,
-        position = {
-            x: 0,
-            y: 0,
-            z: 0
-        },        
+        position,        
         encumbrance = {
             width: 0, // along x
             depth: 0   // along z
         },
-        hitbox = { // cilinder
-            heigth: 0,
-            radius: 0
-        },
+        hitbox
     }) {
         super({    
             geometry,
@@ -111,6 +124,7 @@ export class Character extends Entity {
         this.gravity = world.gravity;
         this._camera = new ThirdPersonCamera(camera, this);
         this._controller = new CharacterController(this);
+        this._collider = new StandardCollider();
         
         this._camera.update(0);
     
@@ -121,30 +135,23 @@ export class Character extends Entity {
         
         this._controller.update(timeElapsed);
         this._camera.update(timeElapsed);
-        
     }
 }
 
 // a walkable platform in our world
 export class Walkable extends Entity {
+
     constructor({
         geometry,
         material,
         parent, // each entity has a parent, world is parent to all (not sure if this is redundant if 3js has it already)
         world,
-        position = {
-            x: 0,
-            y: 0,
-            z: 0
-        },         
+        position,         
         encumbrance = {
             width: 0, // along x
             depth: 0   // along z
         },
-        hitbox = { // cilinder
-            heigth: 0,
-            radius: 0
-        }
+        hitbox
     }) {
         super({    
             geometry,
@@ -164,24 +171,18 @@ export class Walkable extends Entity {
 }
 
 export class Obstacle extends Entity {
+
     constructor({
         geometry,
         material,
         parent, // each entity has a parent, world is parent to all (not sure if this is redundant if 3js has it already)
         world,
-        position = {
-            x: 0,
-            y: 0,
-            z: 0
-        },         
+        position,         
         encumbrance = {
             width: 0, // along x
             depth: 0   // along z
         },
-        hitbox = { // cilinder
-            heigth: 0,
-            radius: 0
-        }
+        hitbox
     }) {
         super({    
             geometry,
@@ -199,7 +200,6 @@ export class Obstacle extends Entity {
             y: 0.0,
             z: 0.0
         };
-        
     }
     
     _updateGravity(){
@@ -226,5 +226,6 @@ export class Obstacle extends Entity {
         this._updateSides();
         this._updateGravity();
         this._updatePosition();
+        //this._hitbox.updatePosition();
     }
 }

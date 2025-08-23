@@ -1,0 +1,446 @@
+// contains collision detection primitives
+import * as THREE from 'three'
+
+class HitBox extends THREE.Mesh {
+    constructor(geometry, material) {
+        super(geometry, material);
+    }
+    
+    hideHitBox() {
+        this.visible = false;
+    }
+    
+    showHitBox() {
+        this.visible = true;
+    }
+    
+    getPosition(){
+        if( this.parent ) return this.parent.getPosition();
+    }    
+    
+    getRotation(){
+        if( this.parent ) return this.parent.getRotation();
+    }
+    
+}
+
+export class CylinderHitBox extends HitBox {
+    constructor(radius, height ) {
+        const geometry = new THREE.CylinderGeometry(radius, radius, height, 16);
+        const material = new THREE.MeshBasicMaterial({ wireframe: true });
+        super(geometry, material);
+        this.radius = radius;
+        this.height = height;
+    }
+    
+}
+
+export class BoxHitBox extends HitBox {
+    constructor(width, height, depth) {
+        const geometry = new THREE.BoxGeometry(width, height, depth);
+        const material = new THREE.MeshBasicMaterial({ wireframe: true });    
+        super(geometry, material);
+        this.width = width;
+        this.height = height;
+        this.depth = depth;
+    }
+}
+
+class Collider {
+    constructor() {
+        if(this.collision == undefined) {
+            throw new Error("collision method must be implemented");        
+        }
+    }
+
+    pointInBoundingCylinder(closestPoint, p, hitbox) {
+
+        const dx = closestPoint.x - p.x;
+        const dy = closestPoint.y - p.y;
+        const dz = closestPoint.z - p.z;
+        const r_sq = dx * dx + dz * dz;
+        
+        return (Math.abs(dy) <= hitbox.height / 2) && (r_sq < hitbox.radius * hitbox.radius);
+    }
+
+    pointInBoundingBox(closestPoint, p, hitbox) {
+        const dx = closestPoint.x - p.x;
+        const dy = closestPoint.y - p.y;
+        const dz = closestPoint.z - p.z;
+
+        return (Math.abs(dy) <= hitbox.height / 2) && (Math.abs(dx) < hitbox.width / 2) && (Math.abs(dz) < hitbox.depth / 2)
+    }
+
+}
+
+export class StandardCollider extends Collider {
+    constructor() {
+        super();
+    }
+
+    // functions for collision deection
+    // given a set of collision candidates checks which ones are actually hitting
+    // TODO: if there's time make this code more readable;
+    collision(entity1, entity2) {
+        let collision = null;
+        const hitbox1 = entity1.getHitBox();
+        const hitbox2 = entity2.getHitBox();
+    
+        if( !hitbox1 || !hitbox2 || entity1 == entity2) return collision;
+    
+        if (hitbox1.constructor == CylinderHitBox) {
+            if (hitbox2.constructor == BoxHitBox) {
+                
+                // get Global transforms
+                const Q2 = hitbox2.getRotation();
+                const Q2_con = Q2.conjugate();
+                const P2 = hitbox2.getPosition();
+            
+                // p is position of hitbox1 relative to hitbox2's frame of reference
+                const p = hitbox1.getPosition().sub(P2).applyQuaternion(Q2_con);    
+            
+                // find closest point between hitboxes
+                const closestPoint = new THREE.Vector3(
+                    Math.max( -hitbox2.width / 2, Math.min(p.x, hitbox2.width / 2)),
+                    Math.max( - hitbox2.height / 2, Math.min(p.y, hitbox2.height / 2)), // a hit is considered only from below for now...
+                    Math.max( - hitbox2.depth / 2, Math.min(p.z, hitbox2.depth / 2))
+                )
+            
+                // find displacement between point and hitbox1
+                const dx = closestPoint.x - p.x;
+                const dy = closestPoint.y - p.y ;
+                const dz = closestPoint.z - p.z;
+                
+                // compute overlap with hitbox1 radius
+                if (this.pointInBoundingCylinder(closestPoint, p, hitbox1)) {
+                    const overlapY = (hitbox1.height / 2) - Math.abs(dy);
+                    const overlapXZ = hitbox1.radius - Math.sqrt(dx * dx + dz * dz);
+    
+                    let normal, overlap;
+                    if (overlapY < overlapXZ) {                
+                        normal = new THREE.Vector3(0, -Math.sign(dy), 0);// sign may need to be changed
+                        overlap = overlapY;
+                    } else {
+                        normal = new THREE.Vector3(-dx, 0, -dz).normalize();
+                        overlap = overlapXZ;
+                    }
+                
+                    // put everything back to hitbox1 frame of reference
+                    // back to world coords
+                    closestPoint.add(P2).applyQuaternion(Q2);
+                    normal.applyQuaternion(Q2);
+                                
+                    const Q1 = hitbox1.getRotation();
+                    const Q1_con = Q1.conjugate();
+                    const P1 = hitbox1.getPosition();     
+                
+                    closestPoint.sub(P1).applyQuaternion(Q1_con);
+                    // normal only need to apply quaternion
+                    normal.applyQuaternion(Q1_con);
+
+                    collision=({
+                        hitbox: hitbox2,
+                        contactPoint: closestPoint,
+                        normal,
+                        overlap
+                    });
+                }
+            } else if (hitbox2.constructor == CylinderHitBox){
+            
+                // get Global transforms
+                const Q1 = hitbox1.getRotation();
+                const Q1_con = Q1.conjugate();
+                const P1 = hitbox1.getPosition();
+                
+                // in this case is better to have p as the position of hitbox2 relative to hitbox1's frame of reference
+                const p = hitbox2.getPosition().sub(P1).applyQuaternion(Q1_con); 
+                
+                // find closest point between hitboxes                
+                const Y = Math.max(p.y - hitbox2.height / 2, Math.min(0.0, p.y + hitbox2.height / 2)); // this is the same as seen before but in a different frame of reference
+                
+                // takes vector on xz plane between two points and shortens it until closest point is reached
+                const XZ_close = new THREE.Vector2(p.x, p.z);
+                const XZ_far = XZ_close.clone();
+                const XZ_hit = XZ_close.clone();
+                XZ_close.setLength(XZ_close.length()-hitbox2.radius);
+                
+                const closestPoint = new THREE.Vector3(XZ_close.x, Y, XZ_close.y);
+                
+                XZ_far.setLength(XZ_far.length()+hitbox2.radius);
+                
+                const furthestPoint = new THREE.Vector3(XZ_far.x, Y, XZ_far.y);
+                
+                XZ_hit.setLength(hitbox1.radius);
+                
+                const hitPoint = new THREE.Vector3(XZ_hit.x, Y, XZ_hit.y);
+                
+                // find displacement between point and hitbox1
+                const dx = closestPoint.x;
+                const dy = closestPoint.y;
+                const dz = closestPoint.z;
+                    
+                const conditionX = (hitPoint.x <= furthestPoint.x && hitPoint.x >= closestPoint.x)
+                                    ?hitPoint.x>=0:
+                                    (hitPoint.x >= furthestPoint.x && hitPoint.x <= closestPoint.x);
+                
+                const conditionY = Math.abs(closestPoint.y) <= hitbox1.height/2;
+                
+                const conditionZ = (hitPoint.z <= furthestPoint.z && hitPoint.z >= closestPoint.z)
+                                    ?hitPoint.z>=0:
+                                    (hitPoint.z >= furthestPoint.z && hitPoint.z <= closestPoint.z);
+                
+                const condition = conditionX && conditionY && conditionZ;
+                // compute overlap with hitbox1 radius
+                if (condition) {     
+                                                     
+                    const overlapY = (hitbox1.height / 2) - Math.abs(dy);
+                    const overlapXZ = hitbox1.radius - Math.sqrt(dx * dx + dz * dz);
+                    
+                    let normal, overlap;
+                    if (Math.abs(overlapY) < Math.abs(overlapXZ)) {                
+                        normal = new THREE.Vector3(0, -Math.sign(dy), 0);
+                        overlap = overlapY;
+                    } else {
+                        normal = new THREE.Vector3(-dx, 0, -dz).normalize();
+                        overlap = overlapXZ;
+                    }
+                    
+                    // no need to put everything back to hitbox1 frame of reference, we were already there.
+    
+                    collision=({
+                        hitbox: hitbox2,
+                        contactPoint: closestPoint,
+                        normal,
+                        overlap
+                    });                
+                }   
+            }   
+        } else if (hitbox1.constructor == BoxHitBox) {
+            if ( hitbox2.constructor == CylinderHitBox ) {
+                // this case is a mix of the previous ones, it will be treated directly from frame of reference of hitbox1
+                // get Global transforms
+                const Q1 = hitbox1.getRotation();
+                const Q1_con = Q1.conjugate();
+                const P1 = hitbox1.getPosition();
+                                
+                const Q2 = hitbox2.getRotation();
+                const Q2_con = Q2.conjugate();
+                // in this case is better to have p as the position of hitbox2 relative to hitbox1's frame of reference
+                const p = hitbox2.getPosition().sub(P1).applyQuaternion(Q1_con);
+                
+                // closest point on box, we need closest on cylinder though
+                const P = new THREE.Vector3(
+                    Math.max( - hitbox1.width / 2, Math.min(p.x, hitbox1.width / 2)),
+                    Math.max( - hitbox1.height / 2, Math.min(p.y, hitbox1.height / 2)), 
+                    Math.max( - hitbox1.depth / 2, Math.min(p.z, hitbox1.depth / 2))
+                )
+                
+                const helper = P.clone().sub(p).applyQuaternion(Q2_con); 
+
+                const _p = p.clone().sub(P);
+                
+                // takes vector on xz plane between two points and shortens it until closest point is reached
+                const XZ_close = new THREE.Vector2(_p.x, _p.z);
+                XZ_close.setLength(XZ_close.length()-hitbox2.radius);
+                
+                const closestPoint = new THREE.Vector3(XZ_close.x, 0.0, XZ_close.y).add(P); 
+                
+                closestPoint.y = Math.max(p.y - hitbox2.height / 2, Math.min(0.0, p.y + hitbox2.height / 2)); // bring back Y to right frame of reference// P.y 
+                
+                // find displacement between point and hitbox1
+                const dx = closestPoint.x;
+                const dy = closestPoint.y;
+                const dz = closestPoint.z;    
+                  
+                let condition = helper.x*helper.x+helper.z*helper.z < hitbox2.radius*hitbox2.radius;
+                
+                // compute overlap with hitbox1 radius
+                if (condition && Math.abs(dy)<=hitbox1.height/2) {            
+                    
+                    
+                    const overlapY = (hitbox1.height / 2) - Math.abs(dy);
+                    const overlapX = (hitbox1.width / 2) - Math.abs(dx);
+                    const overlapZ = (hitbox1.depth / 2) - Math.abs(dz);
+        
+                    let normal, overlap;
+                    if (Math.abs(overlapY) < Math.abs(overlapX) && Math.abs(overlapY) < Math.abs(overlapZ)) {                
+                        normal = new THREE.Vector3(0, -Math.sign(dy), 0);
+                        overlap = overlapY;
+                    } else if (Math.abs(overlapX) < Math.abs(overlapY) && Math.abs(overlapX) < Math.abs(overlapZ)) {
+                        normal = new THREE.Vector3(-Math.sign(dx), 0, 0);
+                        overlap = overlapX;
+                    } else {
+                        normal = new THREE.Vector3(0,0,-Math.sign(dz));
+                        //console.log(overlapX,overlapY,overlapZ);
+                        //console.log(normal);
+                        overlap = overlapZ;
+                    }
+                    
+                    // no need to put everything back to hitbox1 frame of reference, we were already there.
+        
+                    
+    
+                    collision=({
+                        hitbox: hitbox2,
+                        contactPoint: closestPoint,
+                        normal,
+                        overlap
+                    });                
+                }            
+            
+            } else if ( hitbox2.constructor == BoxHitBox ) {
+                // this is the hardest case, it will be treted slightly differently
+                
+                const Q2 = hitbox2.getRotation(); // rotation of hitbox2 in global
+                const P2 = hitbox2.getPosition(); // position of hitbox2 in global
+                const Q2_con = Q2.conjugate();
+                
+                // vertices of hitbox2 in global coordinates
+                const w2 = hitbox2.width;
+                const h2 = hitbox2.height;
+                const d2 = hitbox2.depth;
+            
+                const v1_2 = new THREE.Vector3(w2/2,- h2/2,d2/2).add(P2).applyQuaternion(Q2);
+                const v2_2 = new THREE.Vector3(-w2/2,- h2/2,d2/2).add(P2).applyQuaternion(Q2);
+                const v3_2 = new THREE.Vector3(-w2/2,- h2/2,-d2/2).add(P2).applyQuaternion(Q2);
+                const v4_2 = new THREE.Vector3(w2/2,- h2/2,-d2/2).add(P2).applyQuaternion(Q2);
+         
+                // -switch everything to local 1
+                // for simplicity we go to frame of reference 1
+                const Q1 = hitbox1.getRotation(); // rotation of hitbox1 in global
+                const Q1_con = Q1.conjugate();
+                const P1 = hitbox1.getPosition(); // position of hitbox1 in global           
+            
+                v1_2.sub(P1).applyQuaternion(Q1_con);
+                v2_2.sub(P1).applyQuaternion(Q1_con);
+                v3_2.sub(P1).applyQuaternion(Q1_con);
+                v4_2.sub(P1).applyQuaternion(Q1_con); 
+                let v_X_min = [v1_2, v2_2, v3_2, v4_2];
+                let v_Z_min = [v1_2, v2_2, v3_2, v4_2];
+                let v_X_max = [v1_2, v2_2, v3_2, v4_2];
+                let v_Z_max = [v1_2, v2_2, v3_2, v4_2];            
+                v_X_min.sort(function(v1,v2){return v1.x-v2.x});
+                v_Z_min.sort(function(v1,v2){return v1.z-v2.z});
+                v_X_max.sort(function(v1,v2){return v2.x-v1.x});
+                v_Z_max.sort(function(v1,v2){return v2.z-v1.z});
+                
+                // -compute verteces of 1 in local 1
+                const w1 = hitbox1.width;
+                const h1 = hitbox1.height;
+                const d1 = hitbox1.depth;
+                        
+                // -check for collision with SAT
+                let overlap = 0;
+                const normal = new THREE.Vector3(0,0,0);
+                if (v_X_min[0].x < w1/2 && 
+                    v_Z_min[0].z < d1/2 && 
+                    v_X_max[0].x > -w1/2 && 
+                    v_Z_max[0].z > -d1/2 && 
+                    P2.y-h2/2 <= P1.y+h1/2 && 
+                    P2.y+h2/2 >= P1.y-h1/2
+                ) {
+                    //possible collision
+                    let overlapY_1 = P2.y + h2/2 - (P1.y - h1/2);
+                    let overlapY_2 = P1.y + h1/2 - (P2.y - h2/2);
+                    if (overlapY_1 < overlapY_2 ) {
+                        overlap = overlapY_1;
+                        normal.set(0,1,0);
+                    } else {
+                        overlap = overlapY_2;
+                        normal.set(0,-1,0);
+                    }
+                
+                    let overlapX_1 = v_X_max[0].x - (-w1/2);
+                    let overlapX_2 = (w1/2) - v_X_min[0].x;
+                
+                    if (overlapX_1 < overlapX_2 && overlapX_1 < overlap) {
+                        overlap = overlapX_1;
+                        normal.set(1,0,0);
+                    } else if ( overlapX_2 < overlap ){
+                        overlap = overlapX_2;
+                        normal.set(-1,0,0);
+                    }
+                
+                    let overlapZ_1 = v_Z_max[0].z - (-d1/2);
+                    let overlapZ_2 = (d1/2) - v_Z_min[0].z;
+                
+                    if( overlapZ_1 < overlapZ_2 && overlapZ_1 < overlap ) {
+                        overlap = overlapZ_1;
+                        normal.set(0,0,1);
+                    } else if ( overlapZ_2 < overlap ){
+                        overlap = overlapZ_2;
+                        normal.set(0,0,-1);
+                    }
+                    // now we need to check if there's a superposition also in local 2
+                    // put everything back to global
+                
+                    const v1_1 = new THREE.Vector3(w1/2,-h1/2,d1/2).add(P1).applyQuaternion(Q1);
+                    const v2_1 = new THREE.Vector3(-w1/2,-h1/2,d1/2).add(P1).applyQuaternion(Q1);
+                    const v3_1 = new THREE.Vector3(-w1/2,-h1/2,-d1/2).add(P1).applyQuaternion(Q1);
+                    const v4_1 = new THREE.Vector3(w1/2,-h1/2,-d1/2).add(P1).applyQuaternion(Q1);                   
+                
+                    // and then to local 2
+                    v1_1.sub(P2).applyQuaternion(Q2_con);
+                    v2_1.sub(P2).applyQuaternion(Q2_con);
+                    v3_1.sub(P2).applyQuaternion(Q2_con);
+                    v4_1.sub(P2).applyQuaternion(Q2_con); 
+                    v_X_min = [v1_1, v2_1, v3_1, v4_1];
+                    v_Z_min = [v1_1, v2_1, v3_1, v4_1];
+                    v_X_max = [v1_1, v2_1, v3_1, v4_1];
+                    v_Z_max = [v1_1, v2_2, v3_1, v4_1];            
+                    v_X_min.sort(function(v1,v2){return v1.x-v2.x});
+                    v_Z_min.sort(function(v1,v2){return v1.z-v2.z});
+                    v_X_max.sort(function(v1,v2){return v2.x-v1.x});
+                    v_Z_max.sort(function(v1,v2){return v2.z-v1.z});
+
+                    let change_normal = false;
+                    if (v_X_min[0].x < w2/2 && v_Z_min[0].z < d2/2 && v_X_max[0].x > -w2/2 && v_Z_max[0].z > -d2/2) {
+                        // collision found!
+                        let overlapX_1 = v_X_max[0].x - (-w2/2);
+                        let overlapX_2 = (w2/2) - v_X_min[0].x;
+                    
+                        if (overlapX_1 < overlapX_2 && overlapX_1 < overlap ) {
+                            overlap = overlapX_1;
+                            normal.set(1,0,0);
+                            change_normal = true;
+                        } else if ( overlapX_2 < overlap ) {
+                            overlap = overlapX_2;
+                            normal.set(-1,0,0);
+                            change_normal = true;                    
+                        }
+                    
+                        let overlapZ_1 = v_Z_max[0].z - (-d2/2);
+                        let overlapZ_2 = (d2/2) - v_Z_min[0].z;
+                    
+                        if( overlapZ_1 < overlapZ_2 && overlapZ_1 < overlap ) {
+                            overlap = overlapZ_1;
+                            normal.set(0,0,1);
+                            change_normal = true;                        
+                        } else if ( overlapZ_2 < overlap ){
+                            overlap = overlapZ_2;
+                            normal.set(0,0,-1);
+                            change_normal = true;
+                        }                    
+                    
+                        if (change_normal) {
+                            // need to put normal back in local 1
+                            normal.applyQuaternion(Q2);
+                            normal.applyQuaternion(Q1_con);
+                        }
+                    
+                        collision=({
+                            hitbox: hitbox2,
+                            contactPoint: null, // find contact point is too hard
+                            normal,
+                            overlap
+                        });                                        
+                    }
+                }            
+            }
+        }
+        return collision;
+    }
+}
+
+
+

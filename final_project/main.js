@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import Grid from './world.js'
 import {Character, Walkable, Obstacle} from './entities.js'
+import {CylinderHitBox, BoxHitBox} from './collisions.js'
 
 class World extends Grid {
     constructor(bounds = [[-1000,-1000],[1000,1000]], dimensions = [101,101], gravity = -9.8) {
@@ -59,7 +60,10 @@ class World extends Grid {
         this._scene.background = texture;
         
         this._previousRAF = null;
-        //this._RAF();
+        
+        
+        // debugging purposes only
+        this.debug_vector = new THREE.Vector3(0.0,0.0,5.0);
     }
     
     _onWindowResize(){
@@ -71,7 +75,10 @@ class World extends Grid {
     }
     
     // Request Animation Frame
-    _RAF() {
+    _RAF(iteration) {
+
+        //if( iteration >= 400 ) return;
+
         requestAnimationFrame((t) => {
             if(this._previousRAF === null) {
                 this._previousRAF = t;
@@ -81,7 +88,7 @@ class World extends Grid {
             this._step(t - this._previousRAF);
             this._previousRAF = t;
             
-            this._RAF();
+            this._RAF(iteration+1);
         });
     }
     
@@ -91,32 +98,47 @@ class World extends Grid {
     }
     
     start() {
-        this._RAF();
-    }
-    
-    addEntity(e) {
-        this._scene.add(e);
-        this.newClient(e);
-    }
-    
-    addPlayerCharacter(c) {
-        this._scene.add(c);        
-        this._character = c;
-        this.newClient(c);
-
+        this._RAF(0.0);
     }
     
     // TODO: For now it updates worldwide, later may need to be modified to update only around the character 
     update(timeElapsed) {
-    
+        
         const w = this._bounds[1][0] - this._bounds[0][0];
         const h = this._bounds[1][1] - this._bounds[0][1];
-        const clients = this.FindNear([0, 0],[w, h]);
-        clients.forEach( (client) => {        
-            client.entity.update(timeElapsed);
+        let clients = this.FindNear([0, 0],[w, h]);
+        clients.forEach( (client) => {  
+            const e = client.entity;
+            const p = e.getPosition();
+            const x = p.x;
+            const y = p.z;
+            if (e._collider) {
+                const candidates = this.FindNear([x,y],[0, 0]); // checks all objects in same cell
+                for (const candidate of candidates) {
+                    e.checkCollision(candidate.entity);
+                }
+                
+            }
+            e.update(timeElapsed);
+            e.clearCollisions();
             this.UpdateClient(client);
         });
+        
     }
+    
+    addEntity(e) {
+        this.newClient(e);
+    }
+    
+    addPlayerCharacter(c) {
+        this._character = c;
+        this.addEntity(c);
+
+    }
+    
+    addToScene(e) {
+        this._scene.add(e);
+    }    
     
 }
 
@@ -126,30 +148,26 @@ const world = new World();
 // initialize meshes
 const ground_geometry = new THREE.BoxGeometry(100,0.5,100);
 const ground_material = new THREE.MeshStandardMaterial({ color: 0xffffff });
+const ground_hitbox = new BoxHitBox(100,0.5, 100);
 
-const pillar_geometry = new THREE.BoxGeometry(5,30,5);
+const pillar_geometry = new THREE.BoxGeometry(5,1,5);
 const pillar_material = new THREE.MeshStandardMaterial({ color: 'blue' });
+const pillar_hitbox = new CylinderHitBox(2.5,1);
 
-const char_geometry = new THREE.BoxGeometry(0.8,1.7,0.8);
+const char_geometry = new THREE.BoxGeometry(0.8,2,0.8);
 const char_material = new THREE.MeshStandardMaterial({ color: 'green' });
+const char_hitbox = new BoxHitBox(0.8,2,0.8);
 
 // create entities (world objects);
 const platform = new Walkable({
     geometry: ground_geometry,
     material: ground_material,
-    position: {
-        x: 0.0,
-        y: 0.0,
-        z: 0.0
-    },
+    position: new THREE.Vector3(0.0, 0.0, 0.0),
     encumbrance: {
         width: 100,
         depth: 100
     },    
-    hitbox: {
-        height: 0.5,
-        radius: 50
-    },
+    hitbox: ground_hitbox,
     parent: null,
     world: world
 });
@@ -157,19 +175,12 @@ const platform = new Walkable({
 const pillar = new Obstacle({
     geometry: pillar_geometry,
     material: pillar_material,
-    position: {
-        x: 40.0,
-        y: 16.0,
-        z: 40.0
-    },
+    position: new THREE.Vector3(0.0, 0.75, 5.0),
     encumbrance: {
         width: 5,
         depth: 5
     },    
-    hitbox: {
-        height: 30,
-        radius: 2.5
-    },
+    hitbox: pillar_hitbox,
     parent: platform,
     world: world
 });
@@ -178,23 +189,15 @@ const crtr = new Character({
     geometry: char_geometry,
     material: char_material,
     camera: world._camera,
-    position: {
-        x: 0.0,
-        y: 1.5,
-        z: 0.0
-    },
+    position: new THREE.Vector3(0.0, 5.5, 0.0),
     encumbrance: {
         width: 0.8,
         depth: 0.8
     },
-    hitbox: {
-        height: 1.7,
-        radius: 0.4
-    },
+    hitbox: char_hitbox,
     parent: platform,
     world: world
 });
-
 
 world.addEntity(platform);
 world.addEntity(pillar);
