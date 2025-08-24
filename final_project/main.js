@@ -152,11 +152,11 @@ const ground_hitbox = new BoxHitBox(100,0.5, 100);
 
 const pillar_geometry = new THREE.BoxGeometry(5,1,5);
 const pillar_material = new THREE.MeshStandardMaterial({ color: 'blue' });
-const pillar_hitbox = new CylinderHitBox(2.5,1);
+const pillar_hitbox = new BoxHitBox(5,1,5);
 
 const char_geometry = new THREE.BoxGeometry(0.8,2,0.8);
 const char_material = new THREE.MeshStandardMaterial({ color: 'green' });
-const char_hitbox = new BoxHitBox(0.8,2,0.8);
+const char_hitbox = new CylinderHitBox(0.57,2);
 
 // create entities (world objects);
 const platform = new Walkable({

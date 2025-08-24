@@ -125,7 +125,6 @@ export class Character extends Entity {
         this._camera = new ThirdPersonCamera(camera, this);
         this._controller = new CharacterController(this);
         this._collider = new StandardCollider();
-        
         this._camera.update(0);
     
     }
