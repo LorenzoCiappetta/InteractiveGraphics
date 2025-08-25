@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {boxLimits, boxCollision} from '/utils.js'
 import ThirdPersonCamera from './camera.js'
-import {CharacterController} from './controls.js'
+import {CharacterController, DroneController} from './controls.js'
 import {StandardCollider} from './collisions.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { FBXLoader} from 'three/addons/loaders/FBXLoader.js';
@@ -147,9 +147,14 @@ export class BoxHitBox extends HitBox {
     }
 }
 
+export class Projectile extends BoxHitBox {
+
+}
+
 export class Drone extends CylinderHitBox {
     constructor({radius,
                 height,
+                mesh,
                 parent,
                 world,
                 position,
@@ -164,15 +169,22 @@ export class Drone extends CylinderHitBox {
             height,
             parent,
             world,
-            mesh:mesh,
+            mesh,
             position,
             encumbrance
         }); 
         
+        this._offset = new THREE.Vector3(-0.5, 0.8, -0.1);
+        this._maxammo = 50;
+        this._magazine = this._maxammo;
+        if(this.parent instanceof Character) this.position.set(this._offset.x,this._offset.y,this._offset.z);
+        this._collider = new StandardCollider();
+        this._controller = new DroneController(this);
     }
     
-    update() {
+    update(timeElapsed) {
         this._updateSides();
+        this._controller.update(timeElapsed);
     }
 }
 
@@ -210,6 +222,7 @@ export class Character extends CylinderHitBox {
         this._controller = new CharacterController(this);
         this._collider = new StandardCollider();
         this._camera.update(0);          
+        this._weapon=null;
         this._loadModel(path);
 
     }
@@ -254,7 +267,7 @@ export class Character extends CylinderHitBox {
                 }
             });
                                         
-            this._mesh.position.set(0,-1.0,0);
+            this._mesh.position.set(0,-0.9,0);
             this._rotationhelper.add(this._mesh);
             
             this._mixer = new THREE.AnimationMixer(this._mesh);
@@ -289,7 +302,12 @@ export class Character extends CylinderHitBox {
             });
             
         });
-    }    
+    }
+    
+    addWeapon(weapon) {
+        this._weapon = weapon;
+        this._rotationhelper.add(weapon);
+    }
 }
 
 // a walkable platform in our world
@@ -323,6 +341,10 @@ export class Walkable extends BoxHitBox {
     update(_){
         return;
     }
+}
+
+export class MovingPlatform extends Walkable {
+
 }
 
 export class Obstacle extends BoxHitBox {

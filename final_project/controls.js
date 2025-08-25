@@ -2,12 +2,103 @@
 import * as THREE from 'three'
 import {boxCollision} from '/utils.js'
 
+// controller for drone/weapon
+export class DroneController {
+    constructor(drone) {
+        this._drone = drone;
+        this._controller = new BasicInputController();
+        this._FSA = new DroneFSA(this);
+        this._defaultpose = this._drone._offset;
+        
+        this._time = 0;
+        
+        this._acceleration = new THREE.Vector3(0.1, 0.1, 0.1);
+        this._maxvelocity = new THREE.Vector3(0.5, 0.0, 0.5);
+        
+        this._velocity = new THREE.Vector3(0.0, 0.0, 0.0); 
+        this._angular = new THREE.Vector3(0.0, 0.0, 0.0);
+        
+        this._amplitude = 0.002
+        this._bobbingfreq = 1.5;
+    }
+    
+    update(timeInSeconds) {
+
+        if(!this._drone) {
+            return;
+        }
+
+        this._time+=timeInSeconds;
+
+        // checks collisions at previous frame
+        const collisions = this._drone._collisions;
+        collisions.sort((a, b) => {
+            return a.overlap < b.overlap;
+        });
+        
+        for ( const collision of collisions) {
+        
+            let normal = collision.normal.clone();
+            let delta = collision.overlap;
+           
+            // fall check
+            if ( normal.y > 0 ) this.falling = false;
+            
+            this._drone.translateOnAxis(normal, delta);
+            ////
+            let magnitude = this._velocity.dot(normal);
+            let velocityAdjustment = normal.multiplyScalar(magnitude);
+        
+            this._velocity.sub(velocityAdjustment);
+        
+        }        
+
+        this._FSA.update(timeInSeconds, this._controller);
+        const mouse = this._controller._mouse;
+
+        const state = this._FSA._current.getName();
+        
+        if(state == 'idle') {
+            this._drone.position.y += this._amplitude*Math.sin(this._time*this._bobbingfreq);
+            this._angular.y = 0.8*timeInSeconds;
+            this._angular.x = 0.8*timeInSeconds;
+        } else if (state == 'fire'){
+            this._angular.y = 1.2*timeInSeconds;  
+            this._angular.x = 1.2*timeInSeconds; 
+            if(this._drone.position.y != this._defaultpose.y) {
+                this._velocity.y += Math.sign(this._defaultpose.y-this._drone.position.y)*this._acceleration.y * timeInSeconds;
+            }            
+        }else {
+            this._drone.position.y += (this._amplitude/2)*Math.sin(this._time*this._bobbingfreq*0.8);
+        }
+        
+        if(this._drone.position.x != this._defaultpose.x) {
+            this._velocity.x += Math.sign(this._defaultpose.x-this._drone.position.x)*this._acceleration.x * timeInSeconds;
+        }
+
+        if(this._drone.position.z != this._defaultpose.z) {
+            this._velocity.z += Math.sign(this._defaultpose.z-this._drone.position.z)*this._acceleration.z * timeInSeconds;
+        }
+
+        this._updateMovement(timeInSeconds);
+    }
+    
+    _updateMovement(timeInSeconds){
+        this._drone.position.y += (this._velocity.y * timeInSeconds);
+        this._drone.position.x += (this._velocity.x * timeInSeconds);
+        this._drone.position.z += (this._velocity.z * timeInSeconds);
+        
+        this._drone.rotation.y += this._angular.y;
+        this._drone.rotation.x += this._angular.x;
+    }
+}
+
 // controller for a character
 export class CharacterController {
-    constructor(entity) {
-        this._animations = entity._animations;
+    constructor(character) {
+        this._animations = character._animations;
 
-        this._character = entity;
+        this._character = character;
 
         this._controller = new BasicInputController();
         this._FSA = new CharacterFSA(this);        
@@ -283,6 +374,17 @@ class CharacterFSA extends BasicFSA {
     }
 };
 
+// Character/Drone specific FSA
+class DroneFSA extends BasicFSA {
+    constructor(controller) {
+        super(controller);
+        
+        this._addState('idle',DroneIdleState);
+        this._addState('fire', FireState);
+        this._addState('empty', EmptyState);
+    }
+}
+
 // States
 class State {
     constructor(parent) {
@@ -335,47 +437,7 @@ class IdleState extends State {
             condS || 
             condD
         ) {
-            
-            /*if(condD) {
-                //const curAction = this._parent._controller._animations['turn_r'].action;
-                //curAction.reset();
-                //curAction.loop = THREE.LoopOnce;
-                //curAction.play();
-                if(condW) {
-                    this._parent._controller._character._rotationhelper.rotation.y = -Math.PI / 4;
-                } else if (condS) {
-                    this._parent._controller._character._rotationhelper.rotation.y = -3*Math.PI / 4;
-                } else {
-                    this._parent._controller._character._rotationhelper.rotation.y = -Math.PI / 2;
-                }
-            } else if(condA) {
-                if(condW) {
-                    this._parent._controller._character._rotationhelper.rotation.y = Math.PI / 4;
-                } else if (condS) {
-                    this._parent._controller._character._rotationhelper.rotation.y = 3*Math.PI / 4;
-                } else {
-                    this._parent._controller._character._rotationhelper.rotation.y = Math.PI / 2;
-                }
-            }
-            
-            if(condW) {
-                if(condA) {
-                    this._parent._controller._character._rotationhelper.rotation.y = -Math.PI / 4;
-                } else if (condD) {
-                    this._parent._controller._character._rotationhelper.rotation.y = Math.PI / 4;
-                } else {
-                    this._parent._controller._character._rotationhelper.rotation.y = 0;
-                }                
-            } else if(condS) {
-                if(condA) {
-                    this._parent._controller._character._rotationhelper.rotation.y = Math.PI / 4;
-                } else if (condD) {
-                    this._parent._controller._character._rotationhelper.rotation.y = -Math.PI / 4;
-                } else {
-                    this._parent._controller._character._rotationhelper.rotation.y = Math.PI;
-                } 
-            }*/
-            
+                        
             if(input._keys.shft.pressed) {
                 this._parent.setState('run');
             } else {
@@ -644,6 +706,66 @@ class FallState extends State {
     }
 };
 
+class DroneIdleState extends State {
+    constructor(parent) {
+        super(parent);
+    }   
+    
+    getName() {
+        return 'idle';
+    }        
+    
+    Enter() {}
+    Exit() {}
+    
+    update(_, input) {
+        if(input._mouse.lc.pressed) {
+            this._parent.setState('fire');
+        }
+    }
+}
+
+class FireState extends State {
+    constructor(parent) {
+        super(parent);
+    }
+    
+    getName() {
+        return 'fire';
+    }    
+    
+    Enter() {}
+    Exit() {}
+    
+    update(_,input) {
+        if(this._parent._controller._drone._magazine == 0) {
+            this._parent.setState('empty');
+        } else if (!input._mouse.lc.pressed) {
+            this._parent.setState('idle');
+        }
+         
+    }
+}
+
+class EmptyState extends State {
+    constructor(parent) {
+        super(parent);
+    }
+    
+    getName() {
+        return 'empty';
+    }    
+    
+    Enter() {}
+    Exit() {}
+    
+    update(_,input) {
+        if(this._parent._controller._drone._magazine != 0) {
+            this._parent.setState('idle');
+        }
+    }
+}
+
 // Controlls
 class BasicInputController {
     constructor(fov=60) {
@@ -683,6 +805,12 @@ class BasicInputController {
             move: {
                 x: 0.0,
                 y: 0.0,
+            },
+            rc: {
+                pressed:false,
+            },
+            lc: {
+                pressed:false,
             }
         }
           
@@ -757,7 +885,6 @@ class BasicInputController {
     }
 
     _onMouseMove(event) {
-
         const w = window.innerWidth;
         const h = window.innerHeight; 
         
@@ -774,7 +901,15 @@ class BasicInputController {
         this._mouse.move.x = this._sensitivity * x * coeff;
         this._mouse.move.y = this._sensitivity * y * coeff;
     }
+
+    _onMouseDown(event) {
         
+    }
+
+    _onMouseUp(event) {
+    
+    }
+
     setSensitivity(n) {
         this._sensitivity = n;
     }

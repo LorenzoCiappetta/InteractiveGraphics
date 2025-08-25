@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import Grid from './world.js'
-import {Character, Walkable, Obstacle,CylinderHitBox, BoxHitBox} from './entities.js'
+import {Drone, Character, Walkable, Obstacle,CylinderHitBox, BoxHitBox} from './entities.js'
 
 class World extends Grid {
     constructor(bounds = [[-1000,-1000],[1000,1000]], dimensions = [101,101], gravity = -9.8) {
@@ -154,11 +154,9 @@ const pillar_geometry = new THREE.BoxGeometry(5,1,5);
 const pillar_material = new THREE.MeshStandardMaterial({ color: 'blue' });
 const pillar_mesh = new THREE.Mesh(pillar_geometry,pillar_material);
 
-
-/*const char_geometry = new THREE.BoxGeometry(0.8,2,0.8);
-const char_material = new THREE.MeshStandardMaterial({ color: 'green' });
-const char_mesh = new THREE.Mesh(char_geometry,char_material);*/
-//const char_hitbox = new CylinderHitBox(0.57,2);
+const drone_geometry = new THREE.BoxGeometry(0.2,0.2,0.2);
+const drone_material = new THREE.MeshStandardMaterial({ color: 'red' });
+const drone_mesh = new THREE.Mesh(drone_geometry,drone_material);
 
 // create entities (world objects);
 const platform = new Walkable({
@@ -197,15 +195,32 @@ const crtr = new Character({
         width: 0.8,
         depth: 0.8
     },
-    height: 2.0,
+    height: 1.8,
     radius: 0.4,
     parent: platform,
     world: world
 });
 
+const drone = new Drone({
+    mesh: drone_mesh,
+    position: new THREE.Vector3(0.0, 0.0, 0.0),
+    encumberance: {
+        width: 0.2,
+        depth: 0.2
+    },
+    radius: 0.1,
+    height: 0.1,
+    parent:crtr,
+    world: world
+});
+
+crtr.addWeapon(drone);
+
 world.addEntity(platform);
 world.addEntity(pillar);
+world.addEntity(drone);
 world.addPlayerCharacter(crtr);
+
 
 world.start();
 
