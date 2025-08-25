@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import Grid from './world.js'
-import {Character, Walkable, Obstacle} from './entities.js'
-import {CylinderHitBox, BoxHitBox} from './collisions.js'
+import {Character, Walkable, Obstacle,CylinderHitBox, BoxHitBox} from './entities.js'
 
 class World extends Grid {
     constructor(bounds = [[-1000,-1000],[1000,1000]], dimensions = [101,101], gravity = -9.8) {
@@ -60,10 +59,11 @@ class World extends Grid {
         this._scene.background = texture;
         
         this._previousRAF = null;
-        
-        
+                
         // debugging purposes only
         this.debug_vector = new THREE.Vector3(0.0,0.0,5.0);
+        this._mixer = null;
+                
     }
     
     _onWindowResize(){
@@ -139,7 +139,7 @@ class World extends Grid {
     addToScene(e) {
         this._scene.add(e);
     }    
-    
+        
 }
 
 // create world
@@ -148,53 +148,57 @@ const world = new World();
 // initialize meshes
 const ground_geometry = new THREE.BoxGeometry(100,0.5,100);
 const ground_material = new THREE.MeshStandardMaterial({ color: 0xffffff });
-const ground_hitbox = new BoxHitBox(100,0.5, 100);
+const ground_mesh = new THREE.Mesh(ground_geometry,ground_material);
 
 const pillar_geometry = new THREE.BoxGeometry(5,1,5);
 const pillar_material = new THREE.MeshStandardMaterial({ color: 'blue' });
-const pillar_hitbox = new BoxHitBox(5,1,5);
+const pillar_mesh = new THREE.Mesh(pillar_geometry,pillar_material);
 
-const char_geometry = new THREE.BoxGeometry(0.8,2,0.8);
+
+/*const char_geometry = new THREE.BoxGeometry(0.8,2,0.8);
 const char_material = new THREE.MeshStandardMaterial({ color: 'green' });
-const char_hitbox = new CylinderHitBox(0.57,2);
+const char_mesh = new THREE.Mesh(char_geometry,char_material);*/
+//const char_hitbox = new CylinderHitBox(0.57,2);
 
 // create entities (world objects);
 const platform = new Walkable({
-    geometry: ground_geometry,
-    material: ground_material,
+    mesh: ground_mesh,
     position: new THREE.Vector3(0.0, 0.0, 0.0),
     encumbrance: {
         width: 100,
         depth: 100
     },    
-    hitbox: ground_hitbox,
-    parent: null,
+    height:0.5,
+    width:100,
+    depth:100,
+    parent: world._scene,
     world: world
 });
 
 const pillar = new Obstacle({
-    geometry: pillar_geometry,
-    material: pillar_material,
+    mesh: pillar_mesh,
     position: new THREE.Vector3(0.0, 0.75, 5.0),
     encumbrance: {
         width: 5,
         depth: 5
     },    
-    hitbox: pillar_hitbox,
+    height:1,
+    width:5,
+    depth:5,
     parent: platform,
     world: world
 });
 
 const crtr = new Character({
-    geometry: char_geometry,
-    material: char_material,
+    path:'Y_Bot.fbx',
     camera: world._camera,
     position: new THREE.Vector3(0.0, 5.5, 0.0),
     encumbrance: {
         width: 0.8,
         depth: 0.8
     },
-    hitbox: char_hitbox,
+    height: 2.0,
+    radius: 0.4,
     parent: platform,
     world: world
 });

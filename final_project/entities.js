@@ -3,66 +3,78 @@ import {boxLimits, boxCollision} from '/utils.js'
 import ThirdPersonCamera from './camera.js'
 import {CharacterController} from './controls.js'
 import {StandardCollider} from './collisions.js'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { FBXLoader} from 'three/addons/loaders/FBXLoader.js';
 
 // abstract class for game objects
-class Entity extends THREE.Mesh {
-    
+class HitBox extends THREE.Mesh {
     constructor({
-        geometry,
-        material,
-        parent, // each entity has a parent, world is parent to all (not sure if this is redundant if 3js has it already)
-        world, // world were entity is placed in
-        position, 
-        hitbox,
-        encumbrance = { 
-            width: 0, // along x
-            depth: 0   // along z
-        }
+                height,
+                geometry,
+                material,
+                mesh,
+                parent,
+                world,
+                position,
+                encumbrance = { 
+                    width: 0, // along x
+                    depth: 0   // along z
+                }
     }) {
         super(geometry, material);
 
-        if(this.update == undefined) {
-            throw new Error("update method must be implemented");        
-        }
-                
-        this._world = world;        
-        this._world.addToScene(this);
-        
-        if( parent ) {
-            this._parent = parent;
-            this.parent = parent; // redundant but did not find better solution
-        }
-        
-        this._hitbox = hitbox;
-        this._world.addToScene(this._hitbox)
-        this.add(this._hitbox);
-                
-        this.position.set(position.x, position.y, position.z);
-
-        this._encumbrance = new THREE.Vector3(encumbrance.width, hitbox.height, encumbrance.depth);                
-        this._updateSides();
+        this._world = world;                
+        this.parent = parent; // redundant but did not find better solution
+        if(parent) parent.add(this);
+        this.position.set(position.x,position.y,position.z);
+        this._encumbrance = new THREE.Vector3(encumbrance.width, height, encumbrance.depth);                
         
         // collision detection        
         this._collider = null;
         this._collisions = [];
+        
+        this._updateSides();
+        
+        this._mesh = mesh;
+        if(this._mesh) this.add(this._mesh);
+        
     }
     
-    getPosition(){
-        const p = new THREE.Vector3();
-        this.getWorldPosition(p);
-        return p;
+    hideHitBox() {
+        this.visible = false;
     }
     
-    getRotation(){
-        const q = new THREE.Quaternion();
-        this.getWorldQuaternion(q);
-        return q;
+    showHitBox() {
+        this.visible = true;
     }
     
     getDimensions(){
         return this._encumbrance;
     }
-
+    
+    getPosition(){
+        if( this.parent ) {
+            const p = new THREE.Vector3();
+            this.getWorldPosition(p);
+            return p;
+        }
+        
+    }    
+    
+    getRotation(){
+        if( this.parent ) {
+            const q = new THREE.Quaternion();
+            this.getWorldQuaternion(q);
+            return q;
+        }
+        
+    }
+    
+    _setMesh(mesh, position) {
+        this.add(mesh);        
+        
+    }    
+    
     _updateSides(){ // for now everything is a box later thi method may need to change // TODO: OUTDATED, fix
         const p = this.getPosition();
         const d = this.getDimensions();
@@ -77,16 +89,13 @@ class Entity extends THREE.Mesh {
         this.back = b;
         this.bottom = bo;
         this.top = t    
-    }
+    }    
     
-    getHitBox() {
-        return this._hitbox;
-    }
-  
     checkCollision(entity) {
         if(this._collider) {
             const collision = this._collider.collision(this, entity);
             if(collision) this._collisions.push(collision);
+            
         }
     }
       
@@ -95,73 +104,220 @@ class Entity extends THREE.Mesh {
     }
 }
 
-export class Character extends Entity {
-
-    constructor({
-        geometry,
-        material,
-        camera,
-        parent, // each entity has a parent, world is parent to all (not sure if this is redundant if 3js has it already)
-        world,
-        position,        
-        encumbrance = {
-            width: 0, // along x
-            depth: 0   // along z
-        },
-        hitbox
+export class CylinderHitBox extends HitBox {
+    constructor({radius,
+                height,
+                mesh,
+                parent,
+                world,
+                position,
+                encumbrance = { 
+                    width: 0, // along x
+                    depth: 0   // along z
+                }
     }) {
-        super({    
-            geometry,
-            material,
-            parent,
-            world,
-            position,
-            encumbrance,
-            hitbox
-        }); 
-        this.castShadow = true;
-                
-        this.gravity = world.gravity;
-        this._camera = new ThirdPersonCamera(camera, this);
-        this._controller = new CharacterController(this);
-        this._collider = new StandardCollider();
-        this._camera.update(0);
-    
+        const geometry = new THREE.CylinderGeometry(radius, radius, height, 16);
+        const material = new THREE.MeshBasicMaterial({ wireframe: true });
+        super({height,geometry, material, mesh, parent, world, position, encumbrance});
+        this.radius = radius;
+        this.height = height;
     }
     
-    update(timeElapsed){
-        this._updateSides();
-        
-        this._controller.update(timeElapsed);
-        this._camera.update(timeElapsed);
+}
+
+export class BoxHitBox extends HitBox {
+    constructor({width,
+                height,
+                depth,
+                mesh,
+                parent,
+                world,
+                position,
+                encumbrance = { 
+                    width: 0, // along x
+                    depth: 0   // along z
+                }
+    }) {
+        const geometry = new THREE.BoxGeometry(width, height, depth);
+        const material = new THREE.MeshBasicMaterial({ wireframe: true });    
+        super({height,geometry, material, mesh, parent, world, position, encumbrance});
+        this.width = width;
+        this.height = height;
+        this.depth = depth;
     }
 }
 
-// a walkable platform in our world
-export class Walkable extends Entity {
+export class Drone extends CylinderHitBox {
+    constructor({radius,
+                height,
+                parent,
+                world,
+                position,
+                encumbrance = { 
+                    width: 0, // along x
+                    depth: 0   // along z
+                },
 
-    constructor({
-        geometry,
-        material,
-        parent, // each entity has a parent, world is parent to all (not sure if this is redundant if 3js has it already)
-        world,
-        position,         
-        encumbrance = {
-            width: 0, // along x
-            depth: 0   // along z
+    })  {
+        super({
+            radius,
+            height,
+            parent,
+            world,
+            mesh:mesh,
+            position,
+            encumbrance
+        }); 
+        
+    }
+    
+    update() {
+        this._updateSides();
+    }
+}
+
+export class Character extends CylinderHitBox {
+
+    constructor({radius,
+                height,
+                parent,
+                world,
+                position,
+                encumbrance = { 
+                    width: 0, // along x
+                    depth: 0   // along z
+                },
+                camera,
+                path
+    })  {
+        super({
+            radius,
+            height,
+            parent,
+            world,
+            mesh:null,
+            position,
+            encumbrance
+        }); 
+        
+        this._rotationhelper = new THREE.Object3D();
+        this._rotationhelper.castShadow = false;
+        this._rotationhelper.receiveShadow = false;
+        this.add(this._rotationhelper);
+        this._animations={};
+        this.gravity = this._world.gravity
+        this._camera = new ThirdPersonCamera(camera, this);
+        this._controller = new CharacterController(this);
+        this._collider = new StandardCollider();
+        this._camera.update(0);          
+        this._loadModel(path);
+
+    }
+    
+    update(timeElapsed){
+        this._updateSides();        
+        this._controller.update(timeElapsed);
+        this._camera.update(timeElapsed);
+    }
+    
+    /*_loadModel(path) {
+        const loader = new GLTFLoader();
+        loader.load(path, (gltf) => {
+            this._mesh = gltf.scene;
+            this._mesh.traverse((c) => {
+                if(c.isMesh) {
+                    c.castShadow = true;
+                    c.receiveShadow = true;
+                    c.material.side = THREE.FrontSide;
+                }
+            });
+            this.add(this._mesh);             
+            this._mesh.position.set(0,-1.0,0);
+            this._mesh.rotation.y = Math.PI;
         },
-        hitbox
+        (xhr)=>{
+           console.log("char model" + (xhr.loaded/xhr.total*100)+"% loaded"); 
+        });
+    }*/
+        
+    _loadModel(name) {
+        const loader = new FBXLoader();
+        loader.setPath('./resources/');
+        loader.load(name, (fbx) => {
+            this._mesh = fbx;
+            this._mesh.scale.setScalar(0.01);
+            this._mesh.traverse((c) => {
+                if(c.isMesh) {
+                    c.castShadow = true;
+                    c.receiveShadow = true;
+                    c.material.side = THREE.FrontSide;
+                }
+            });
+                                        
+            this._mesh.position.set(0,-1.0,0);
+            this._rotationhelper.add(this._mesh);
+            
+            this._mixer = new THREE.AnimationMixer(this._mesh);
+            
+            this._manager = new THREE.LoadingManager();
+            this._manager.onLoad = () => {
+                this._controller._FSA.setState('idle');
+            };
+            
+            const _onLoad = (animName, anim) => {
+                const clip = anim.animations[0];
+                const action = this._mixer.clipAction(clip);
+                        
+                this._animations[animName] = {
+                    clip: clip,
+                    action: action,
+                };
+            };
+            
+            const loader = new FBXLoader(this._manager);
+            loader.setPath("./resources/");
+            loader.load("idle1.fbx", (a) => {_onLoad('idle',a);});
+            loader.load("turn_r.fbx", (a) => {_onLoad('turn_r',a);});
+            //loader.load("idle2.fbx", (a) => {_onLoad('idle2',a);});
+            loader.load("walk.fbx", (a) => {_onLoad('walk',a);});
+            loader.load("run.fbx", (a) => {_onLoad('run',a);});
+            loader.load("jump.fbx", (a) => {_onLoad('jump',a);});
+            loader.load("fall.fbx", (a) => {_onLoad('fall',a);});
+            
+            this._mixer.addEventListener('finished', function(e){
+                console.log(e.action._clip.name);
+            });
+            
+        });
+    }    
+}
+
+// a walkable platform in our world
+export class Walkable extends BoxHitBox {
+
+    constructor({width,
+                height,
+                depth,
+                mesh,
+                parent,
+                world,
+                position,
+                encumbrance = { 
+                    width: 0, // along x
+                    depth: 0   // along z
+                }
     }) {
         super({    
-            geometry,
-            material,
+            width,
+            height,
+            depth,
+            mesh,
             parent,
             world, // world were entity is placed in
             position,
             encumbrance,
-            hitbox
         }); 
-        this.receiveShadow = true;
+        this._mesh.receiveShadow = true;
     }
     
     update(_){
@@ -169,62 +325,34 @@ export class Walkable extends Entity {
     }
 }
 
-export class Obstacle extends Entity {
+export class Obstacle extends BoxHitBox {
 
-    constructor({
-        geometry,
-        material,
-        parent, // each entity has a parent, world is parent to all (not sure if this is redundant if 3js has it already)
-        world,
-        position,         
-        encumbrance = {
-            width: 0, // along x
-            depth: 0   // along z
-        },
-        hitbox
+    constructor({width,
+                height,
+                depth,
+                mesh,
+                parent,
+                world,
+                position,
+                encumbrance = { 
+                    width: 0, // along x
+                    depth: 0   // along z
+                }
     }) {
         super({    
-            geometry,
-            material,
+            width,
+            height,
+            depth,
+            mesh,
             parent,
             world, // world were entity is placed in
             position,
             encumbrance,
-            hitbox
         }); 
-        this.castShadow = true;
-        this.gravity = world.gravity;        
-        this.velocity = {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0
-        };
+        this._mesh.receiveShadow = true;
     }
     
-    _updateGravity(){
-        //  hit detect
-        if(boxCollision({
-            box1: this,
-            box2: this._parent
-        })) { 
-            this.velocity.y = 0.0;
-        } else {
-            // accellerate via gravity with terminal velocity
-            if (this.velocity.y >= -5) {
-                this.velocity.y += this.gravity; // gravity
-            }
-        }
-    }   
-    
-    _updatePosition(){
-        
-        this.position.y += this.velocity.y;
+    update(_){
+        return;
     }    
-    
-    update(_) {
-        this._updateSides();
-        this._updateGravity();
-        this._updatePosition();
-        //this._hitbox.updatePosition();
-    }
 }

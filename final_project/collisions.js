@@ -3,51 +3,7 @@
 //TODO: Sistema la normale!!!
 
 import * as THREE from 'three'
-
-class HitBox extends THREE.Mesh {
-    constructor(geometry, material) {
-        super(geometry, material);
-    }
-    
-    hideHitBox() {
-        this.visible = false;
-    }
-    
-    showHitBox() {
-        this.visible = true;
-    }
-    
-    getPosition(){
-        if( this.parent ) return this.parent.getPosition();
-    }    
-    
-    getRotation(){
-        if( this.parent ) return this.parent.getRotation();
-    }
-    
-}
-
-export class CylinderHitBox extends HitBox {
-    constructor(radius, height ) {
-        const geometry = new THREE.CylinderGeometry(radius, radius, height, 16);
-        const material = new THREE.MeshBasicMaterial({ wireframe: true });
-        super(geometry, material);
-        this.radius = radius;
-        this.height = height;
-    }
-    
-}
-
-export class BoxHitBox extends HitBox {
-    constructor(width, height, depth) {
-        const geometry = new THREE.BoxGeometry(width, height, depth);
-        const material = new THREE.MeshBasicMaterial({ wireframe: true });    
-        super(geometry, material);
-        this.width = width;
-        this.height = height;
-        this.depth = depth;
-    }
-}
+import {CylinderHitBox, BoxHitBox} from './entities.js'
 
 class Collider {
     constructor() {
@@ -86,15 +42,14 @@ export class StandardCollider extends Collider {
     // functions for collision deection
     // given a set of collision candidates checks which ones are actually hitting
     // TODO: if there's time make this code more readable;
-    collision(entity1, entity2) {
+    collision(hitbox1, hitbox2) {
         let collision = null;
-        const hitbox1 = entity1.getHitBox();
-        const hitbox2 = entity2.getHitBox();
-    
-        if( !hitbox1 || !hitbox2 || entity1 == entity2) return collision;
-    
-        if (hitbox1.constructor == CylinderHitBox) {
-            if (hitbox2.constructor == BoxHitBox) {
+ 
+        if( !hitbox1 || !hitbox2 || hitbox1 == hitbox2) return collision;
+        
+        if (hitbox1 instanceof CylinderHitBox) {
+            
+            if (hitbox2 instanceof BoxHitBox) {
                 
                 // get Global transforms
                 const Q2 = hitbox2.getRotation();
@@ -150,7 +105,7 @@ export class StandardCollider extends Collider {
                         overlap
                     });
                 }
-            } else if (hitbox2.constructor == CylinderHitBox){
+            } else if (hitbox2 instanceof CylinderHitBox){
             
                 // get Global transforms
                 const Q1 = hitbox1.getRotation();
@@ -220,8 +175,8 @@ export class StandardCollider extends Collider {
                     });                
                 }   
             }   
-        } else if (hitbox1.constructor == BoxHitBox) {
-            if ( hitbox2.constructor == CylinderHitBox ) {
+        } else if (hitbox1 instanceof BoxHitBox) {
+            if ( hitbox2 instanceof CylinderHitBox ) {
                 // this case is a mix of the previous ones, it will be treated directly from frame of reference of hitbox1
                 
                 // get Global transforms
@@ -270,11 +225,8 @@ export class StandardCollider extends Collider {
                     
                     let overlapX = 0;
                     if(Math.sign(dirx) == Math.sign(dx)){
-                        console.log("in here",dx == 0);
                         overlapX = (hitbox1.width / 2) - Math.abs(dx);
-                        console.log(overlapX);
                     }else {
-                        console.log("in there",dx == 0);
                         overlapX = (hitbox1.width) - Math.abs(dx);
                     }
                     let overlapZ = 0;
@@ -304,7 +256,7 @@ export class StandardCollider extends Collider {
                     });                
                 }            
             
-            } else if ( hitbox2.constructor == BoxHitBox ) {
+            } else if ( hitbox2 instanceof BoxHitBox ) {
                 // this is the hardest case, it will be treted slightly differently
                 
                 const Q2 = hitbox2.getRotation(); // rotation of hitbox2 in global
@@ -356,7 +308,7 @@ export class StandardCollider extends Collider {
                     P2.y+h2/2 >= P1.y-h1/2
                 ) {
                     //possible collision
-                    //if(hitbox2.getPosition().z!=0) console.log("possible collision")
+
                     let overlapY_1 = P2.y + h2/2 - (P1.y - h1/2);
                     let overlapY_2 = P1.y + h1/2 - (P2.y - h2/2);
                     if (overlapY_1 < overlapY_2 ) {

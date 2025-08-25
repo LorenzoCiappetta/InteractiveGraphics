@@ -4,9 +4,11 @@ import {boxCollision} from '/utils.js'
 
 // controller for a character
 export class CharacterController {
-    constructor(character) {
-        
-        this._character = character;
+    constructor(entity) {
+        this._animations = entity._animations;
+
+        this._character = entity;
+
         this._controller = new BasicInputController();
         this._FSA = new CharacterFSA(this);        
         
@@ -28,9 +30,6 @@ export class CharacterController {
         this._angular = new THREE.Vector3(0.0, 0.0, 0.0);
                 
         this.falling = true;                
-                
-        //this._animations{};
-        //this._LoadModels();
     }
     
     update(timeInSeconds) {
@@ -56,8 +55,7 @@ export class CharacterController {
         
             let normal = collision.normal.clone();
             let delta = collision.overlap;
-            
-            //console.log("normal is:",normal);
+           
             // fall check
             if ( normal.y > 0 ) this.falling = false;
             
@@ -71,7 +69,6 @@ export class CharacterController {
         }        
         
         this._FSA.update(timeInSeconds, this._controller);
-        //console.log(this._FSA._current.getName());
 
         const keys = this._controller._keys;
         const mouse = this._controller._mouse;
@@ -115,12 +112,15 @@ export class CharacterController {
             }
         
             this._velocity.y += acc.y * timeInSeconds;
+            
         
             if (keys.w.pressed) this._velocity.z += acc.z * timeInSeconds;
             else if (keys.s.pressed) this._velocity.z -= acc.z * timeInSeconds;
+            else this._velocity.z = 0;
         
             if (keys.a.pressed) this._velocity.x += acc.x * timeInSeconds;
             else if (keys.d.pressed) this._velocity.x -= acc.x * timeInSeconds;
+            else this._velocity.x = 0;
             
             // clamping velocities (with decelleration)
             if ( this._velocity.x > m_v.x) this._velocity.x += this._decceleration.x;
@@ -145,28 +145,85 @@ export class CharacterController {
         this._controller.cancelMouse();
         
         this._updateMovement(timeInSeconds);
+        
+        if(this._character._mixer) {
+            this._character._mixer.update(timeInSeconds);
+        }
                 
     }
     
     _updateMovement (timeInSeconds) {
-    
-        // checks collisions at current frame
-        /*const char_bottom = this._character.bottom;
-        const floor_top = this._character._parent.top;
-        
-        if ((char_bottom + (this._velocity.y * timeInSeconds)) - floor_top <= 0.001) {
-            const disp = this._character.position.y - char_bottom
-            this._character.position.y = floor_top + disp;
-        } else {
-            // falling follows absolute (world) frame of reference
-            this._character.position.y += (this._velocity.y * timeInSeconds);        
-        }*/
 
         // falling follows absolute (world) frame of reference
         this._character.position.y += (this._velocity.y * timeInSeconds);
         // movement along x and z follows character frame of reference
-        this._character.translateX((this._velocity.x * timeInSeconds));
-        this._character.translateZ((this._velocity.z * timeInSeconds));
+        const movX = this._velocity.x * timeInSeconds;
+        const movZ = this._velocity.z * timeInSeconds;
+        
+        this._character.translateX(movX);
+        this._character.translateZ(movZ);        
+        
+        if (!(movX==0 && movZ==0)) {
+            let angle = Math.atan2(movZ, movX==0?movX:-movX) - Math.PI / 2;
+            let current_angle = this._character._rotationhelper.rotation.y;
+            if((angle<0)) angle += 2*Math.PI;
+            if(current_angle<0) current_angle += 2*Math.PI;
+                        
+            if (current_angle>Math.PI && angle == 0) angle = 2*Math.PI;
+            if (current_angle<Math.PI/2 && Math.round(angle*100)/1000 == Math.round(2*Math.PI*100)/1000) angle = 0;
+            
+            if(Math.round(current_angle*1000)/10000 == Math.round(2*Math.PI*1000)/10000) current_angle = 0;
+            
+            let clock = false
+            if (
+                (angle > 0 && current_angle>0 && angle <= Math.PI && current_angle <= Math.PI) || 
+                (angle < 2*Math.PI && current_angle<2*Math.PI && angle > Math.PI && current_angle > Math.PI)
+            ) {                
+                clock = current_angle > angle;
+
+            } else if (
+                (angle > 0 && current_angle<2*Math.PI && angle <= Math.PI && current_angle > Math.PI) || 
+                (angle < 2*Math.PI && current_angle>0 && angle > Math.PI && current_angle <= Math.PI)
+            ) {                
+                clock = (current_angle-Math.PI) < angle;
+
+            } else if (angle == 0) {
+                clock = current_angle < Math.PI;
+            } else if (current_angle == 0) {
+                clock = angle < Math.PI;
+            }
+
+            
+            let delta_angle = Math.abs(angle - current_angle);
+            
+            
+            if (delta_angle > Math.PI) {
+                delta_angle = Math.PI;
+            }
+
+            delta_angle*=timeInSeconds;
+                    
+            if(clock) {
+
+                if(Math.round(current_angle) == 0) current_angle = 2*Math.PI;
+                
+                if(current_angle-delta_angle < angle){
+                    this._character._rotationhelper.rotation.y = angle;
+                } else {
+                    this._character._rotationhelper.rotation.y -= delta_angle;
+                }
+            } else {
+                
+                if(Math.round(current_angle*10)/100 == Math.round(2*Math.PI*10)/100) current_angle = 0.0;
+            
+                if(current_angle+delta_angle > angle){
+                    this._character._rotationhelper.rotation.y = angle;
+                } else {
+                    this._character._rotationhelper.rotation.y += delta_angle;
+                }                
+            }
+            
+        }            
 
         this._character.rotation.y += this._angular.y;
         this.falling = true;
@@ -190,12 +247,12 @@ class BasicFSA {
             if (prevState.getName() == name) {
                 return;
             }
-            //prevState.Exit(); //TODO:
+            prevState.Exit();
         }
         
         const state = new this._states[name](this);
         this._current = state;
-        //state.Enter(prevState); //TODO:
+        state.Enter(prevState);
     }
     
     update(timeElapsed, input) {
@@ -231,6 +288,10 @@ class State {
     constructor(parent) {
         this._parent = parent
     }
+    
+    Enter() {}
+    Exit() {}
+    Update() {}
 }
 
 class IdleState extends State {
@@ -242,12 +303,78 @@ class IdleState extends State {
         return 'idle';
     }
     
+    Enter(prevState) {
+        if(!this._parent._controller._animations['idle']) return;
+        const idleAction = this._parent._controller._animations['idle'].action
+        if (prevState) {
+            const prevAction = this._parent._controller._animations[prevState.getName()].action;
+            idleAction.time = 0.0;
+            idleAction.enabled = true;
+            idleAction.setEffectiveTimeScale(1.0);
+            idleAction.crossFadeFrom(prevAction, 0.5, true);
+            idleAction.play();
+        } else {
+            idleAction.play();
+        }
+    }
+    
+    Exit(){
+    
+    }
+    
     update(_, input) {
+    
+        const condW = input._keys.w.pressed;
+        const condA = input._keys.a.pressed;
+        const condS = input._keys.s.pressed;
+        const condD = input._keys.d.pressed;        
         
-        if (input._keys.w.pressed || 
-            input._keys.a.pressed || 
-            input._keys.s.pressed || 
-            input._keys.d.pressed) {
+        if (
+            condW || 
+            condA || 
+            condS || 
+            condD
+        ) {
+            
+            /*if(condD) {
+                //const curAction = this._parent._controller._animations['turn_r'].action;
+                //curAction.reset();
+                //curAction.loop = THREE.LoopOnce;
+                //curAction.play();
+                if(condW) {
+                    this._parent._controller._character._rotationhelper.rotation.y = -Math.PI / 4;
+                } else if (condS) {
+                    this._parent._controller._character._rotationhelper.rotation.y = -3*Math.PI / 4;
+                } else {
+                    this._parent._controller._character._rotationhelper.rotation.y = -Math.PI / 2;
+                }
+            } else if(condA) {
+                if(condW) {
+                    this._parent._controller._character._rotationhelper.rotation.y = Math.PI / 4;
+                } else if (condS) {
+                    this._parent._controller._character._rotationhelper.rotation.y = 3*Math.PI / 4;
+                } else {
+                    this._parent._controller._character._rotationhelper.rotation.y = Math.PI / 2;
+                }
+            }
+            
+            if(condW) {
+                if(condA) {
+                    this._parent._controller._character._rotationhelper.rotation.y = -Math.PI / 4;
+                } else if (condD) {
+                    this._parent._controller._character._rotationhelper.rotation.y = Math.PI / 4;
+                } else {
+                    this._parent._controller._character._rotationhelper.rotation.y = 0;
+                }                
+            } else if(condS) {
+                if(condA) {
+                    this._parent._controller._character._rotationhelper.rotation.y = Math.PI / 4;
+                } else if (condD) {
+                    this._parent._controller._character._rotationhelper.rotation.y = -Math.PI / 4;
+                } else {
+                    this._parent._controller._character._rotationhelper.rotation.y = Math.PI;
+                } 
+            }*/
             
             if(input._keys.shft.pressed) {
                 this._parent.setState('run');
@@ -273,7 +400,40 @@ class WalkState extends State {
         return 'walk';
     }
    
+    Enter(prevState) {
+        if(!this._parent._controller._animations['walk']) return;
+        const curAction = this._parent._controller._animations['walk'].action;
+        if(prevState) {
+            const prevAction = this._parent._controller._animations[prevState.getName()].action;
+            
+            curAction.enabled = true;
+            
+            if (prevState.getName() == 'run') {
+                const ratio = curAction.getClip().duration / prevAction.getClip().duration;
+                curAction.time = prevAction.time * ration;
+            } else {
+                curAction.time = 0.0;
+                curAction.setEffectiveTimeScale(1.0);
+                curAction.setEffectiveWeight(1.0);
+            }
+            
+            curAction.crossFadeFrom(prevAction, 0.5, true);
+            curAction.play();
+        } else {
+            curAction.play();
+        }
+    }
+    
+    Exit() {
+    
+    }
+    
     update(_, input) {
+        
+        const condW = input._keys.w.pressed;
+        const condA = input._keys.a.pressed;
+        const condS = input._keys.s.pressed;
+        const condD = input._keys.d.pressed;
         
         if (input._keys.spc.pressed && !input._keys.spc.active) {
         
@@ -285,10 +445,14 @@ class WalkState extends State {
             input._keys.spc.active = true;
             this._parent.setState('fall'); 
         
-        } else if (input._keys.w.pressed || 
-            input._keys.a.pressed || 
-            input._keys.s.pressed || 
-            input._keys.d.pressed) {
+        } else if (
+            condW || 
+            condA || 
+            condS || 
+            condD
+        ) {
+            
+
             
             if(input._keys.shft.pressed) {
                 this._parent.setState('run');
@@ -311,6 +475,34 @@ class RunState extends State {
     
     getName() {
         return 'run';
+    }
+    
+    Enter(prevState) {
+        if(!this._parent._controller._animations['run']) return;
+        const curAction = this._parent._controller._animations['run'].action;
+        if (prevState) {
+            const prevAction = this._parent._controller._animations[prevState.getName()].action;
+            
+            curAction.enabled = true;
+            
+            if ( prevState.getName() == 'walk' ) {
+                const ratio = curAction.getClip().duration / prevAction.getClip().duration;
+                curAction.time = prevAction.time * ratio;
+            } else {
+                curAction.time = 0.0;
+                curAction.setEffectiveTimeScale(1.0);
+                curAction.setEffectiveWeight(1.0);
+            }
+            
+            curAction.crossFadeFrom(prevAction, 0.5, true);
+            curAction.play();
+        } else {
+            curAction.play();
+        }
+    }
+    
+    Exit(){
+    
     }
 
     update(_, input) {
@@ -353,6 +545,40 @@ class JumpState extends State {
         return 'jump';
     }
 
+    Enter(prevState) {
+        if(!this._parent._controller._animations['jump']) return;
+        const curAction = this._parent._controller._animations['jump'].action;
+        curAction.loop = THREE.LoopOnce;
+        //curAction.startAt(0.8);
+        if (prevState) {
+            const prevAction = this._parent._controller._animations[prevState.getName()].action;
+            
+            curAction.enabled = true;
+            
+            if ( prevState.getName() == 'walk' || prevState.getName() == 'run'  ) {
+                const ratio = curAction.getClip().duration / prevAction.getClip().duration;
+                curAction.time = prevAction.time * ratio;
+            } else {
+                curAction.time = 0.0;
+                curAction.setEffectiveTimeScale(1.0);
+                curAction.setEffectiveWeight(1.0);
+            }
+            
+            curAction.crossFadeFrom(prevAction, 0.5, true);            
+            curAction.play();
+            curAction.reset();
+        } else {
+            
+            curAction.play();
+            curAction.reset();
+        }    
+    
+    }
+    
+    Exit() {
+    
+    }
+
     update(_, input) {
         
         this._parent.setState('fall'); 
@@ -367,6 +593,34 @@ class FallState extends State {
     
     getName() {
         return 'fall';
+    }
+    
+    Enter(prevState) {
+        if(!this._parent._controller._animations['fall']) return;
+        const curAction = this._parent._controller._animations['fall'].action;
+        if (prevState) {
+            const prevAction = this._parent._controller._animations[prevState.getName()].action;
+            
+            curAction.enabled = true;
+            
+            if ( prevState.getName() == 'walk' ) {
+                const ratio = curAction.getClip().duration / prevAction.getClip().duration;
+                curAction.time = prevAction.time * ratio;
+            } else {
+                curAction.time = 0.0;
+                curAction.setEffectiveTimeScale(1.0);
+                curAction.setEffectiveWeight(1.0);
+            }
+            
+            curAction.crossFadeFrom(prevAction, 0.5, true);
+            curAction.play();
+        } else {
+            curAction.play();
+        }    
+    }
+    
+    Exit() {
+    
     }
 
     update(_, input) {
