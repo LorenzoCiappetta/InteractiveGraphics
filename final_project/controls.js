@@ -1,6 +1,96 @@
 // contains controls for the game
 import * as THREE from 'three'
+import { DecalGeometry } from 'three/addons/geometries/DecalGeometry.js';
 import {boxCollision} from '/utils.js'
+
+
+// very simple controller for a projectile
+export class ProjectileController {
+    constructor(projectile) {
+        this._projectile = projectile;
+        // this._FSA // not 100% necessary for now...
+        this._time = 0;
+        this._lifetime = this._projectile._lifetime;
+        this._speed = this._projectile._speed;
+        this._direction = this._projectile._direction;
+        
+    }
+    
+    update(timeInSeconds) {
+        this._time+=timeInSeconds;
+    
+        const collisions = this._projectile._collisions;
+        if(collisions.length != 0) {
+            
+            collisions.sort((a, b) => {
+                return a.overlap < b.overlap;
+            });        
+            
+            const collision = collisions[0];
+            if(collision.hitbox.parent._mesh) {
+                
+                const P = this._projectile.getPosition();
+                const Q = this._projectile.getRotation();
+                
+                const obj = collision.hitbox.parent._mesh;                
+                const normal = collision.normal.clone().applyQuaternion(Q).negate();
+                const origin = collision.contactPoint.clone().applyQuaternion(Q).add(P);
+                                
+                const raycaster = new THREE.Raycaster(origin, normal);
+                
+                const hits = raycaster.intersectObjects([obj]);
+            
+                if(hits.length!=0) {
+
+                    // global position
+                    const position = hits[0].point.clone();
+                    const eye = position.clone();
+                    // position of point on hit face 
+                    eye.add(hits[0].face.normal);
+                
+                    // creates rotation matrix
+                    const rotation = new THREE.Matrix4();
+                    // set rotation to rotate towards point hit
+                    rotation.lookAt(eye, position, THREE.Object3D.DEFAULT_UP);
+                    const euler = new THREE.Euler();
+                    euler.setFromRotationMatrix(rotation);
+                                        
+                    // projectile leaves a mark
+                    const decalGeometry = new DecalGeometry(obj, hits[0].point, euler, new THREE.Vector3(1,1,1));
+                    const decalMaterial = new THREE.MeshStandardMaterial({
+                        color: 0xFFFFFF,
+                        depthTest: true,
+                        depthWrite: false,
+                        polygonOffset: true, // to prevent z-fighting
+                        polygonOffsetFactor: -4,
+                    });
+                    
+                    const decal = new THREE.Mesh(decalGeometry, decalMaterial);
+                    decal.receiveShadow = true;
+                    this._projectile._world._scene.add(decal);            
+                } else {
+                    console.log("Oh no");
+                }
+            }
+            this._projectile._delete();
+            return
+        }
+        
+        if(this._time >= this._lifetime) {
+            // trigger delete function
+            this._projectile._delete();
+            return
+        }
+        
+        const velocity = this._direction.clone();
+
+        velocity.multiplyScalar(this._speed);
+        velocity.multiplyScalar(timeInSeconds)
+        this._projectile.position.add(velocity);
+        
+    }
+
+}
 
 // controller for drone/weapon
 export class DroneController {
@@ -9,6 +99,7 @@ export class DroneController {
         this._controller = new BasicInputController();
         this._FSA = new DroneFSA(this);
         this._defaultpose = this._drone._offset;
+        this._magazine = this._drone._magazine;
         
         this._time = 0;
         
@@ -18,7 +109,7 @@ export class DroneController {
         this._velocity = new THREE.Vector3(0.0, 0.0, 0.0); 
         this._angular = new THREE.Vector3(0.0, 0.0, 0.0);
         
-        this._amplitude = 0.002
+        this._amplitude = 0.2
         this._bobbingfreq = 1.5;
     }
     
@@ -28,48 +119,37 @@ export class DroneController {
             return;
         }
 
-        this._time+=timeInSeconds;
+        this._magazine = this._drone._magazine;
 
-        // checks collisions at previous frame
-        const collisions = this._drone._collisions;
-        collisions.sort((a, b) => {
-            return a.overlap < b.overlap;
-        });
-        
-        for ( const collision of collisions) {
-        
-            let normal = collision.normal.clone();
-            let delta = collision.overlap;
-           
-            // fall check
-            if ( normal.y > 0 ) this.falling = false;
-            
-            this._drone.translateOnAxis(normal, delta);
-            ////
-            let magnitude = this._velocity.dot(normal);
-            let velocityAdjustment = normal.multiplyScalar(magnitude);
-        
-            this._velocity.sub(velocityAdjustment);
-        
-        }        
+        this._updateCollisions(timeInSeconds)
 
         this._FSA.update(timeInSeconds, this._controller);
-        const mouse = this._controller._mouse;
 
         const state = this._FSA._current.getName();
         
         if(state == 'idle') {
-            this._drone.position.y += this._amplitude*Math.sin(this._time*this._bobbingfreq);
+            this._time+=timeInSeconds;
+            this._drone.position.y += this._amplitude*Math.sin(this._time*this._bobbingfreq) + (this._defaultpose.y-this._drone.position.y);
             this._angular.y = 0.8*timeInSeconds;
             this._angular.x = 0.8*timeInSeconds;
         } else if (state == 'fire'){
             this._angular.y = 1.2*timeInSeconds;  
             this._angular.x = 1.2*timeInSeconds; 
-            if(this._drone.position.y != this._defaultpose.y) {
-                this._velocity.y += Math.sign(this._defaultpose.y-this._drone.position.y)*this._acceleration.y * timeInSeconds;
-            }            
+            
+            // check if crosshair is pointing at object
+            const raycaster = new THREE.Raycaster();
+            const pos = {x:0, y:0}; // crosshair is at center of screen
+            
+            raycaster.setFromCamera(pos, this._drone._world._camera);
+            const dir = raycaster.ray.direction.clone(); // it is a normal
+            dir.multiplyScalar(100); 
+            const p = this._drone.getPosition();
+            dir.sub(p).normalize();
+            this._drone.Fire(dir, timeInSeconds);
+            
         }else {
-            this._drone.position.y += (this._amplitude/2)*Math.sin(this._time*this._bobbingfreq*0.8);
+            this._time+=timeInSeconds;
+            this._drone.position.y += (this._amplitude/2)*Math.sin(this._time*this._bobbingfreq*0.8) + (this._defaultpose.y-this._drone.position.y);
         }
         
         if(this._drone.position.x != this._defaultpose.x) {
@@ -82,14 +162,36 @@ export class DroneController {
 
         this._updateMovement(timeInSeconds);
     }
-    
-    _updateMovement(timeInSeconds){
+        
+    _updateCollisions(timeInSeconds) {
+        // checks collisions at previous frame
+        const collisions = this._drone._collisions;
+        collisions.sort((a, b) => {
+            return a.overlap < b.overlap;
+        });
+        
+        for ( const collision of collisions) {
+        
+            let normal = collision.normal.clone();
+            let delta = collision.overlap;
+            
+            this._drone.translateOnAxis(normal, delta);
+            ////
+            let magnitude = this._velocity.dot(normal);
+            let velocityAdjustment = normal.multiplyScalar(magnitude);
+        
+            this._velocity.sub(velocityAdjustment);
+        
+        }    
+    }
+        
+    _updateMovement(timeInSeconds) {
         this._drone.position.y += (this._velocity.y * timeInSeconds);
         this._drone.position.x += (this._velocity.x * timeInSeconds);
         this._drone.position.z += (this._velocity.z * timeInSeconds);
         
-        this._drone.rotation.y += this._angular.y;
-        this._drone.rotation.x += this._angular.x;
+        this._drone._rotationhelper.rotation.y += this._angular.y;
+        this._drone._rotationhelper.rotation.x += this._angular.x;
     }
 }
 
@@ -124,20 +226,73 @@ export class CharacterController {
     }
     
     update(timeInSeconds) {
-    
-        // Uses semi-implicit Euler integretion:
-        //  v(t) is velocity at previous frame
-        //  a(t) is constant in for our character
-        //  dt is timeInSeconds
-        //  v(t + dt) = vt + dt * a(t)
-        //  s(t + dt) = [ x(t + dt), y(t + dt), z(t + dt) ] = s(t) + dt * v(t + dt)
         
         if(!this._character) {
             return;
         }
+        // checks for collsions
+        this._updateCollisions(timeInSeconds);
+        // updates state of character
+        this._FSA.update(timeInSeconds, this._controller);
+        // updates velocity of character based on state and input
+        this._updateVelocity(timeInSeconds);
+        // updates camera position based on mouse movement
+        this._updateCamera(timeInSeconds);
+        // updates posiiton based on computed velocity
+        this._updateMovement(timeInSeconds);
+
+        const keys = this._controller._keys;
+        const mouse = this._controller._mouse;
+
+        /*if(mouse.lc.pressed) {
+            const raycaster = new THREE.Raycaster();
+            const pos = {x:0, y:0}; // crosshair is at center of screen
+            
+            raycaster.setFromCamera(pos, this._character._camera._camera);
+            const hits = raycaster.intersectObjects(this._character._inrange);
+            
+            if(hits.length!=0) {
+
+                // global position
+                const position = hits[0].point.clone();
+                const eye = position.clone();
+                // position of point on hit face 
+                eye.add(hits[0].face.normal);
+                
+                // creates rotation matrix
+                const rotation = new THREE.Matrix4();
+                // set rotation to rotate towards point hit
+                rotation.lookAt(eye, position, THREE.Object3D.DEFAULT_UP);
+                const euler = new THREE.Euler();
+                euler.setFromRotationMatrix(rotation);
+                
+                const decalGeometry = new DecalGeometry(hits[0].object, hits[0].point, euler, new THREE.Vector3(1,1,1));
+                const decalMaterial = new THREE.MeshStandardMaterial({
+                    color: 0xFFFFFF,
+                    depthTest: true,
+                    depthWrite: false,
+                    polygonOffset: true, // to prevent z-fighting
+                    polygonOffsetFactor: -4,
+                });
+                
+                const decal = new THREE.Mesh(decalGeometry, decalMaterial);
+                decal.receiveShadow = true;
+                this._character._world._scene.add(decal);
+                
+            }
+        }*/
         
-        // checks collisions at previous frame
+        // updates animation mixer
+        if(this._character._mixer) {
+            this._character._mixer.update(timeInSeconds);
+        }
+                
+    }
+    
+    _updateCollisions(timeInSeconds) {
+        // checks collisions at current frame
         const collisions = this._character._collisions;
+        // sorts collisions to deal from smallest to biggest
         collisions.sort((a, b) => {
             return a.overlap < b.overlap;
         });
@@ -149,18 +304,41 @@ export class CharacterController {
            
             // fall check
             if ( normal.y > 0 ) this.falling = false;
-            
+
+            // updates character velocity to get away from collided object in direction of collision normal
             this._character.translateOnAxis(normal, delta);
-            ////
+
             let magnitude = this._velocity.dot(normal);
             let velocityAdjustment = normal.multiplyScalar(magnitude);
         
-            this._velocity.sub(velocityAdjustment);
+            this._velocity.sub(velocityAdjustment);        
+        }    
+    }
+    
+    _updateCamera(timeInSeconds) {
+        const keys = this._controller._keys;
+        const mouse = this._controller._mouse;    
+    
+        // Control Rotation
+        const Q = new THREE.Quaternion();
+        const A = new THREE.Vector3(0.0, 1.0, 0.0); // yaw axis
         
-        }        
+        Q.setFromAxisAngle(A, mouse.move.x * timeInSeconds);
+        this._character.quaternion.multiply(Q);
         
-        this._FSA.update(timeInSeconds, this._controller);
+        this._character._camera.id_Lookat.y += mouse.move.y * timeInSeconds
 
+        this._controller.cancelMouse();    
+    }
+    
+    _updateVelocity(timeInSeconds) {
+        // Uses semi-implicit Euler integretion:
+        //  v(t) is velocity at previous frame
+        //  a(t) is constant in for our character
+        //  dt is timeInSeconds
+        //  v(t + dt) = vt + dt * a(t)
+        //  s(t + dt) = [ x(t + dt), y(t + dt), z(t + dt) ] = s(t) + dt * v(t + dt)    
+    
         const keys = this._controller._keys;
         const mouse = this._controller._mouse;
 
@@ -222,25 +400,7 @@ export class CharacterController {
             
             if ( this._velocity.y < -m_v.y) this._velocity.y = -m_v.y; // no need to limit up wards velocity while falling
         
-        }
-
-        // Control Rotation
-        const Q = new THREE.Quaternion();
-        const A = new THREE.Vector3(0.0, 1.0, 0.0); // yaw axis
-        
-        Q.setFromAxisAngle(A, mouse.move.x * timeInSeconds);
-        this._character.quaternion.multiply(Q);
-        
-        this._character._camera.Lookat.y += mouse.move.y * timeInSeconds
-
-        this._controller.cancelMouse();
-        
-        this._updateMovement(timeInSeconds);
-        
-        if(this._character._mixer) {
-            this._character._mixer.update(timeInSeconds);
-        }
-                
+        }    
     }
     
     _updateMovement (timeInSeconds) {
@@ -251,10 +411,14 @@ export class CharacterController {
         const movX = this._velocity.x * timeInSeconds;
         const movZ = this._velocity.z * timeInSeconds;
         
+        // apply translationale movement
         this._character.translateX(movX);
         this._character.translateZ(movZ);        
         
+        // make character rotate in its walking direction
         if (!(movX==0 && movZ==0)) {
+        
+            // compute angles fro 0 to 2pi
             let angle = Math.atan2(movZ, movX==0?movX:-movX) - Math.PI / 2;
             let current_angle = this._character._rotationhelper.rotation.y;
             if((angle<0)) angle += 2*Math.PI;
@@ -265,6 +429,7 @@ export class CharacterController {
             
             if(Math.round(current_angle*1000)/10000 == Math.round(2*Math.PI*1000)/10000) current_angle = 0;
             
+            // check if closest transition is clock or counter-clock wise
             let clock = false
             if (
                 (angle > 0 && current_angle>0 && angle <= Math.PI && current_angle <= Math.PI) || 
@@ -284,16 +449,17 @@ export class CharacterController {
                 clock = angle < Math.PI;
             }
 
-            
+            // compute angle of rotation
             let delta_angle = Math.abs(angle - current_angle);
             
-            
+            // fix rotation at rad/s            
             if (delta_angle > Math.PI) {
                 delta_angle = Math.PI;
             }
 
             delta_angle*=timeInSeconds;
                     
+            // apply delta clock or counter-clock wise
             if(clock) {
 
                 if(Math.round(current_angle) == 0) current_angle = 2*Math.PI;
@@ -734,11 +900,13 @@ class FireState extends State {
         return 'fire';
     }    
     
-    Enter() {}
+    Enter() {
+        this._parent._controller._drone._mesh.material.color.setHex(0xff0000);
+    }
     Exit() {}
     
     update(_,input) {
-        if(this._parent._controller._drone._magazine == 0) {
+        if(this._parent._controller._magazine == 0) {
             this._parent.setState('empty');
         } else if (!input._mouse.lc.pressed) {
             this._parent.setState('idle');
@@ -756,11 +924,14 @@ class EmptyState extends State {
         return 'empty';
     }    
     
-    Enter() {}
+    Enter() {
+        this._parent._controller._drone._mesh.material.color.setHex(0x42c5f5);
+    
+    }
     Exit() {}
     
     update(_,input) {
-        if(this._parent._controller._drone._magazine != 0) {
+        if(this._parent._controller._magazine != 0) {
             this._parent.setState('idle');
         }
     }
@@ -816,8 +987,9 @@ class BasicInputController {
           
         document.addEventListener('keydown', (event) => this._onKeyDown(event), false);
         document.addEventListener('keyup', (event) => this._onKeyUp(event), false);  
-        document.addEventListener('mousemove', (event) => this._onMouseMove(event), false)
-
+        document.addEventListener('mousemove', (event) => this._onMouseMove(event), false);
+        document.addEventListener('mousedown', (event) => this._onMouseDown(event), false);
+        document.addEventListener('mouseup', (event) => this._onMouseUp(event), false);
     }
     
     _onKeyDown(event) {
@@ -903,11 +1075,23 @@ class BasicInputController {
     }
 
     _onMouseDown(event) {
-        
+        switch(event.button) {
+            case 0: 
+                this._mouse.lc.pressed = true;
+                break;
+            case 2:
+                this._mouse.rc.pressed = true;
+        }
     }
 
     _onMouseUp(event) {
-    
+        switch(event.button) {
+            case 0: 
+                this._mouse.lc.pressed = false;
+                break;
+            case 2:
+                this._mouse.rc.pressed = false;
+        }    
     }
 
     setSensitivity(n) {

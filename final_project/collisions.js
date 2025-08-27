@@ -1,10 +1,70 @@
 // contains collision detection primitives
-
-//TODO: Sistema la normale!!!
-
 import * as THREE from 'three'
-import {CylinderHitBox, BoxHitBox} from './entities.js'
 
+// abstract class for objects hitboxes
+class HitBox extends THREE.Mesh {
+    constructor({
+        geometry,
+        material,
+    }) {
+        super(geometry, material);
+        this.castShadow = false;
+        this.receiveShadow = false;
+    }
+    
+    hideHitBox() {
+        this.visible = false;
+    }
+    
+    showHitBox() {
+        this.visible = true;
+    }
+        
+    getPosition(){
+        if( this.parent ) {
+            return this.parent.getPosition();
+        } 
+    }    
+    
+    getRotation(){
+        if( this.parent ) {
+            return this.parent.getRotation();
+        }
+    }
+
+};
+
+export class CylinderHitBox extends HitBox {
+    constructor({
+        radius,
+        height,
+    }) {
+        const geometry = new THREE.CylinderGeometry(radius, radius, height, 16);
+        const material = new THREE.MeshBasicMaterial({ wireframe: true });
+        super({geometry, material});
+        this.radius = radius;
+        this.height = height;
+    }
+    
+};
+
+export class BoxHitBox extends HitBox {
+    constructor({
+        width,
+        height,
+        depth,
+    }) {
+        const geometry = new THREE.BoxGeometry(width, height, depth);
+        const material = new THREE.MeshBasicMaterial({ wireframe: true });    
+        super({geometry, material});
+        this.width = width;
+        this.height = height;
+        this.depth = depth;
+    }
+};
+
+
+// classes for collision detection managment
 class Collider {
     constructor() {
         if(this.collision == undefined) {
@@ -30,7 +90,7 @@ class Collider {
         return (Math.abs(dy) <= hitbox.height / 2) && (Math.abs(dx) < hitbox.width / 2) && (Math.abs(dz) < hitbox.depth / 2)
     }
 
-}
+};
 
 export class StandardCollider extends Collider {
     constructor() {
@@ -42,7 +102,11 @@ export class StandardCollider extends Collider {
     // functions for collision deection
     // given a set of collision candidates checks which ones are actually hitting
     // TODO: if there's time make this code more readable;
-    collision(hitbox1, hitbox2) {
+    collision(entity1, entity2) {
+    
+        const hitbox1 = entity1.getHitBox();
+        const hitbox2 = entity2.getHitBox();
+    
         let collision = null;
  
         if( !hitbox1 || !hitbox2 || hitbox1 == hitbox2) return collision;
@@ -387,7 +451,11 @@ export class StandardCollider extends Collider {
                         
                         collision=({
                             hitbox: hitbox2,
-                            contactPoint: null, // find contact point is too hard
+                            contactPoint: normal.clone().multiplyScalar(
+                                (hitbox1.width>((hitbox1.height>hitbox1.depth)?
+                                    hitbox1.height:hitbox1.depth)?
+                                hitbox1.width:((hitbox1.height>hitbox1.depth)?
+                                    hitbox1.height:hitbox1.depth))), // find contact point is too hard, this is an approxximation
                             normal: normal,
                             overlap
                         });                                        

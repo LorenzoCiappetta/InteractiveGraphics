@@ -12,9 +12,9 @@ export default class ThirdPersonCamera {
         this._currentLookat = new THREE.Vector3();
         
         // where the camera is in character coordinates
-        this.Offset = new THREE.Vector3(-1.5,1.5,-1.5);
+        this.id_Offset = new THREE.Vector3(-0.5,1,-1.5);
         // where camera is looking in character coordinates
-        this.Lookat = new THREE.Vector3(-1.5,1.0,2.0);
+        this.id_Lookat = new THREE.Vector3(-0.5,1.0,2.0);
     }
     
     _CalculateIdeal(v){
@@ -24,9 +24,9 @@ export default class ThirdPersonCamera {
     
     update(timeElapsed) {
     
-        const idealLookat = this.Lookat.clone();
+        const idealLookat = this.id_Lookat.clone();
         this._CalculateIdeal(idealLookat);
-        const idealOffset = this.Offset.clone();    
+        const idealOffset = this.id_Offset.clone();    
         this._CalculateIdeal(idealOffset);
         
         const t = 1.0 - Math.pow(0.001, timeElapsed); 

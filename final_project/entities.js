@@ -1,31 +1,34 @@
 import * as THREE from 'three';
 import {boxLimits, boxCollision} from '/utils.js'
 import ThirdPersonCamera from './camera.js'
-import {CharacterController, DroneController} from './controls.js'
-import {StandardCollider} from './collisions.js'
+import {CharacterController, DroneController, ProjectileController} from './controls.js'
+import {BoxHitBox, CylinderHitBox, StandardCollider} from './collisions.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { FBXLoader} from 'three/addons/loaders/FBXLoader.js';
 
 // abstract class for game objects
-class HitBox extends THREE.Mesh {
+class Entity extends THREE.Object3D {
     constructor({
-                height,
-                geometry,
-                material,
-                mesh,
-                parent,
-                world,
-                position,
-                encumbrance = { 
-                    width: 0, // along x
-                    depth: 0   // along z
-                }
+        height,
+        mesh,
+        parent,
+        world,
+        position,
+        encumbrance = { 
+            width: 0, // along x
+            depth: 0   // along z
+        }
     }) {
-        super(geometry, material);
-
+        super();
+        
+        this._expired = false;
+        this._canbehit = true;
+        
         this._world = world;                
-        this.parent = parent; // redundant but did not find better solution
         if(parent) parent.add(this);
+        this._hitbox = null;
+        this._inrange = []; // objects in range of weapon(fixed for now);  
+        
         this.position.set(position.x,position.y,position.z);
         this._encumbrance = new THREE.Vector3(encumbrance.width, height, encumbrance.depth);                
         
@@ -36,45 +39,59 @@ class HitBox extends THREE.Mesh {
         this._updateSides();
         
         this._mesh = mesh;
-        if(this._mesh) this.add(this._mesh);
-        
-    }
-    
-    hideHitBox() {
-        this.visible = false;
-    }
-    
-    showHitBox() {
-        this.visible = true;
+        if(this._mesh) this.add(this._mesh);        
     }
     
     getDimensions(){
         return this._encumbrance;
-    }
-    
-    getPosition(){
-        if( this.parent ) {
-            const p = new THREE.Vector3();
-            this.getWorldPosition(p);
-            return p;
-        }
-        
     }    
     
-    getRotation(){
-        if( this.parent ) {
-            const q = new THREE.Quaternion();
-            this.getWorldQuaternion(q);
-            return q;
-        }
-        
+    getPosition() {
+        const p = new THREE.Vector3();
+        this.getWorldPosition(p);
+        return p;    
     }
     
-    _setMesh(mesh, position) {
-        this.add(mesh);        
-        
-    }    
+    getRotation() {
+        const q = new THREE.Quaternion();
+        this.getWorldQuaternion(q);
+        return q;    
+    }
     
+    getHitBox(){
+        return this._hitbox;
+    }
+    
+    showHitBox(){
+        if(this._hitbox) this._hitbox.visible = true;
+    }
+
+    hideHitBox(){
+        if(this._hitbox) this._hitbox.visible = false;
+    }
+
+    checkCollision(entity) {
+        if(this._collider) {
+            const collision = this._collider.collision(this, entity);
+            if(collision) this._collisions.push(collision);
+            
+        }
+    }
+      
+    clearCollisions() {
+        this._collisions = [];
+    }    
+
+    addToRange(entity) {
+        if(entity != this) {
+            this._inrange.push(entity);
+        }
+    }
+
+    clearRange() {
+        this._inrange = [];
+    }
+
     _updateSides(){ // for now everything is a box later thi method may need to change // TODO: OUTDATED, fix
         const p = this.getPosition();
         const d = this.getDimensions();
@@ -89,69 +106,90 @@ class HitBox extends THREE.Mesh {
         this.back = b;
         this.bottom = bo;
         this.top = t    
-    }    
+    }
+    
+    get expired(){
+        return this._expired;
+    }
+   
+};
+
+export class Projectile extends Entity {
+
+    constructor({
+        origin,
+        speed,
+        direction,
+        world,
+        position,
+    }) {
+        super({
+            height:0.2,
+            mesh:null,
+            parent:null,
+            world,            
+            position,
+            encumbrance:{
+                height:0.01,
+                width:0.01
+            }
+        });
+                    
+        this._canbehit = false;
+        
+        this.origin=origin;
+        this._lifetime = 10;
+        this._direction = direction; // assumed to be normal
+        this._speed = speed;
+        
+        this._hitbox = new BoxHitBox({
+            width:0.01,
+            height:0.2,
+            depth:0.6
+        });
+        this.add(this._hitbox);
+        
+        const geometry = new THREE.PlaneGeometry( 0.6, 0.2 );
+        const material = new THREE.MeshBasicMaterial( {color: "yellow", side: THREE.DoubleSide} );
+        this._mesh = new THREE.Mesh( geometry, material );
+        this.add( this._mesh );
+        const orth_dir = this._direction.clone();
+        orth_dir.set(orth_dir.z,orth_dir.y,-orth_dir.x)
+        this._mesh.lookAt(orth_dir.add(this.position));  
+        
+        this._world.addEntity(this);
+        this._world.addToScene(this); 
+        
+        this._collider = new StandardCollider();
+        this._controller = new ProjectileController(this);        
+    }
+    
+    update(timeElapsed) {
+        this._updateSides();        
+        this._controller.update(timeElapsed);        
+    }
     
     checkCollision(entity) {
+        if(entity == this.origin || entity == this.origin.parent) return;
         if(this._collider) {
             const collision = this._collider.collision(this, entity);
             if(collision) this._collisions.push(collision);
             
         }
     }
-      
-    clearCollisions() {
-        this._collisions = [];
-    }
-}
-
-export class CylinderHitBox extends HitBox {
-    constructor({radius,
-                height,
-                mesh,
-                parent,
-                world,
-                position,
-                encumbrance = { 
-                    width: 0, // along x
-                    depth: 0   // along z
-                }
-    }) {
-        const geometry = new THREE.CylinderGeometry(radius, radius, height, 16);
-        const material = new THREE.MeshBasicMaterial({ wireframe: true });
-        super({height,geometry, material, mesh, parent, world, position, encumbrance});
-        this.radius = radius;
-        this.height = height;
+    
+    _delete(){
+        this._expired = true;
+        this.remove(this._mesh);
+        this._mesh = null;
+        this._collider = null;
+        this._controller = null;
+        this._world._scene.remove(this);
     }
     
-}
+};
 
-export class BoxHitBox extends HitBox {
-    constructor({width,
-                height,
-                depth,
-                mesh,
-                parent,
-                world,
-                position,
-                encumbrance = { 
-                    width: 0, // along x
-                    depth: 0   // along z
-                }
-    }) {
-        const geometry = new THREE.BoxGeometry(width, height, depth);
-        const material = new THREE.MeshBasicMaterial({ wireframe: true });    
-        super({height,geometry, material, mesh, parent, world, position, encumbrance});
-        this.width = width;
-        this.height = height;
-        this.depth = depth;
-    }
-}
-
-export class Projectile extends BoxHitBox {
-
-}
-
-export class Drone extends CylinderHitBox {
+export class Drone extends Entity {
     constructor({radius,
                 height,
                 mesh,
@@ -165,66 +203,113 @@ export class Drone extends CylinderHitBox {
 
     })  {
         super({
-            radius,
             height,
+            mesh:null,
             parent,
-            world,
-            mesh,
+            world,            
             position,
             encumbrance
         }); 
         
-        this._offset = new THREE.Vector3(-0.5, 0.8, -0.1);
         this._maxammo = 50;
         this._magazine = this._maxammo;
+        this._firerate = 0.4;
+        this._stal = 0.4;
+        this._projectilespeed = 10;
+        this._offset = new THREE.Vector3(0.5, 1.0, -0.1);
+        
+        this._hitbox = new CylinderHitBox({radius, height});
+        this.add(this._hitbox);
+        
+        this._rotationhelper = new THREE.Object3D();
+        this._rotationhelper.castShadow = false;
+        this._rotationhelper.receiveShadow = false;        
+        this.add(this._rotationhelper);    
+        this._rotationhelper.add(mesh);
+
+        this._mesh = mesh;
+        
         if(this.parent instanceof Character) this.position.set(this._offset.x,this._offset.y,this._offset.z);
         this._collider = new StandardCollider();
         this._controller = new DroneController(this);
     }
     
     update(timeElapsed) {
+        this._stal += timeElapsed;
         this._updateSides();
         this._controller.update(timeElapsed);
     }
+
+    checkCollision(entity) {
+        if(entity instanceof Projectile) {
+            if(entity.origin == this) return;
+        }
+        if(this._collider) {
+            const collision = this._collider.collision(this, entity);
+            if(collision) this._collisions.push(collision);
+            
+        }
+    }
+
+    Fire(direction, timeInSeconds) {
+        if(this._magazine == 0) return;
+        if (this._stal >= this._firerate) {
+            this._magazine -= 1;
+            const proj = new Projectile({
+                origin:this,
+                speed:this._projectilespeed,
+                direction:direction,
+                world:this._world,
+                position:this.getPosition(),
+            }); 
+            this._stal = 0;
+        }    
+
+    }
 }
 
-export class Character extends CylinderHitBox {
+export class Character extends Entity {
 
-    constructor({radius,
-                height,
-                parent,
-                world,
-                position,
-                encumbrance = { 
-                    width: 0, // along x
-                    depth: 0   // along z
-                },
-                camera,
-                path
+    constructor({
+        radius,
+        height,
+        parent,
+        world,
+        position,
+        encumbrance = { 
+            width: 0, // along x
+            depth: 0   // along z
+        },
+        camera,
+        path
     })  {
         super({
-            radius,
             height,
-            parent,
-            world,
             mesh:null,
+            parent,
+            world,            
             position,
             encumbrance
         }); 
+              
+        this._animations={};
+        this.gravity = this._world.gravity
+        this._weapon=null;
         
         this._rotationhelper = new THREE.Object3D();
         this._rotationhelper.castShadow = false;
         this._rotationhelper.receiveShadow = false;
         this.add(this._rotationhelper);
-        this._animations={};
-        this.gravity = this._world.gravity
+
+        this._hitbox = new CylinderHitBox({radius, height});
+        this.add(this._hitbox);
+
         this._camera = new ThirdPersonCamera(camera, this);
         this._controller = new CharacterController(this);
         this._collider = new StandardCollider();
         this._camera.update(0);          
-        this._weapon=null;
         this._loadModel(path);
-
+        
     }
     
     update(timeElapsed){
@@ -232,7 +317,23 @@ export class Character extends CylinderHitBox {
         this._controller.update(timeElapsed);
         this._camera.update(timeElapsed);
     }
-    
+
+    checkCollision(entity) {
+        if(entity instanceof Projectile) {
+            if(entity.origin == this || entity.origin == this._weapon) return;
+        }
+        if(this._collider) {
+            const collision = this._collider.collision(this, entity);
+            if(collision) this._collisions.push(collision);
+            
+        }
+    }
+
+    addWeapon(weapon) {
+        this._weapon = weapon;
+        this.add(weapon);
+    }    
+           
     /*_loadModel(path) {
         const loader = new GLTFLoader();
         loader.load(path, (gltf) => {
@@ -297,44 +398,38 @@ export class Character extends CylinderHitBox {
             loader.load("jump.fbx", (a) => {_onLoad('jump',a);});
             loader.load("fall.fbx", (a) => {_onLoad('fall',a);});
             
-            this._mixer.addEventListener('finished', function(e){
-                console.log(e.action._clip.name);
-            });
-            
         });
     }
-    
-    addWeapon(weapon) {
-        this._weapon = weapon;
-        this._rotationhelper.add(weapon);
-    }
+
 }
 
 // a walkable platform in our world
-export class Walkable extends BoxHitBox {
+export class Walkable extends Entity {
 
-    constructor({width,
-                height,
-                depth,
-                mesh,
-                parent,
-                world,
-                position,
-                encumbrance = { 
-                    width: 0, // along x
-                    depth: 0   // along z
-                }
+    constructor({
+        width,
+        height,
+        depth,
+        mesh,
+        parent,
+        world,
+        position,
+        encumbrance = { 
+            width: 0, // along x
+            depth: 0   // along z
+        }
     }) {
-        super({    
-            width,
+        super({   
             height,
-            depth,
             mesh,
             parent,
             world, // world were entity is placed in
             position,
             encumbrance,
         }); 
+        
+        this._hitbox = new BoxHitBox({width,height,depth});
+        this.add(this._hitbox);
         this._mesh.receiveShadow = true;
     }
     
@@ -347,30 +442,31 @@ export class MovingPlatform extends Walkable {
 
 }
 
-export class Obstacle extends BoxHitBox {
+export class Obstacle extends Entity {
 
-    constructor({width,
-                height,
-                depth,
-                mesh,
-                parent,
-                world,
-                position,
-                encumbrance = { 
-                    width: 0, // along x
-                    depth: 0   // along z
-                }
+    constructor({
+        width,
+        height,
+        depth,
+        mesh,
+        parent,
+        world,
+        position,
+        encumbrance = { 
+            width: 0, // along x
+            depth: 0   // along z
+        }
     }) {
-        super({    
-            width,
+        super({   
             height,
-            depth,
             mesh,
             parent,
             world, // world were entity is placed in
             position,
             encumbrance,
         }); 
+        this._hitbox = new BoxHitBox({width,height,depth});
+        this.add(this._hitbox);        
         this._mesh.receiveShadow = true;
     }
     

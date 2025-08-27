@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import Grid from './world.js'
-import {Drone, Character, Walkable, Obstacle,CylinderHitBox, BoxHitBox} from './entities.js'
+import {Drone, Character, Walkable, Obstacle} from './entities.js'
 
 class World extends Grid {
     constructor(bounds = [[-1000,-1000],[1000,1000]], dimensions = [101,101], gravity = -9.8) {
@@ -19,6 +19,10 @@ class World extends Grid {
         
         this._scene = new THREE.Scene();
         this._camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
+        
+        // for ui elements 
+        this._uicamera = new THREE.OrthographicCamera(-1, 1, 1 * aspect, -1 * aspect, 1, 1000); 
+        this._uiscene = new THREE.Scene();
     
         this._renderer = new THREE.WebGLRenderer({
             alpha: true,
@@ -47,16 +51,31 @@ class World extends Grid {
         light = new THREE.AmbientLight(0x404040);
         this._scene.add(light);
         
-        const loader = new THREE.CubeTextureLoader();
-        const texture = loader.load([
-            './resources/miramar_lf.jpg',
-            './resources/miramar_rt.jpg',
+        const skyloader = new THREE.CubeTextureLoader();
+        const texture = skyloader.load([
+            './resources/miramar_ft.jpg',
+            './resources/miramar_bk.jpg',        
             './resources/miramar_up.jpg',
             './resources/miramar_dn.jpg',
-            './resources/miramar_ft.jpg',
-            './resources/miramar_bk.jpg'
+            './resources/miramar_lf.jpg',
+            './resources/miramar_rt.jpg',
         ]);
         this._scene.background = texture;
+        
+        // for loading textures
+        const texloader = new THREE.TextureLoader();
+        
+        const maxAnisotropy = this._renderer.capabilities.getMaxAnisotropy();
+        
+        // Crosshair
+        const crosshair = texloader.load('resources/target.png');
+        crosshair.anisotropy = maxAnisotropy;
+
+        this._sprite = new THREE.Sprite(new THREE.SpriteMaterial({map: crosshair, color: 0xffffff, fog: false, depthTest: false, depthWrite: false}));
+        this._sprite.scale.set(0.15, 0.15 * this._camera.aspect, 1)
+        this._sprite.position.set(0, 0, -10);
+
+        this._uiscene.add(this._sprite);        
         
         this._previousRAF = null;
                 
@@ -71,6 +90,11 @@ class World extends Grid {
         const h = window.innerHeight;
         this._camera.aspect = w / h;
         this._camera.updateProjectionMatrix();
+        
+        this._uicamera.left = -this._camera.aspect;
+        this._uicamera.right = this._camera.aspect;
+        this._uicamera.updateProjectionMatrix();        
+        
         this._renderer.setSize( w, h );
     }
     
@@ -83,9 +107,13 @@ class World extends Grid {
             if(this._previousRAF === null) {
                 this._previousRAF = t;
             }
-            
-            this._renderer.render(this._scene, this._camera);
+
             this._step(t - this._previousRAF);
+            this._renderer.autoClear = true;
+            this._renderer.render(this._scene, this._camera);
+            this._renderer.autoClear = false;
+            this._renderer.render(this._uiscene, this._uicamera);
+            
             this._previousRAF = t;
             
             this._RAF(iteration+1);
@@ -107,21 +135,27 @@ class World extends Grid {
         const w = this._bounds[1][0] - this._bounds[0][0];
         const h = this._bounds[1][1] - this._bounds[0][1];
         let clients = this.FindNear([0, 0],[w, h]);
-        clients.forEach( (client) => {  
+        clients.forEach( (client) => {
             const e = client.entity;
-            const p = e.getPosition();
-            const x = p.x;
-            const y = p.z;
-            if (e._collider) {
-                const candidates = this.FindNear([x,y],[0, 0]); // checks all objects in same cell
-                for (const candidate of candidates) {
-                    e.checkCollision(candidate.entity);
+            if(e.expired) {
+                this.RemoveClient(client);
+            } else {
+                const p = e.getPosition();
+                const x = p.x;
+                const y = p.z;
+                if (e._collider) {
+                    const candidates = this.FindNear([x,y],[1, 1]); // checks all objects in same cell
+                    for (const candidate of candidates) {
+                        e.checkCollision(candidate.entity);
+                        if(candidate.entity._canbehit) e.addToRange(candidate.entity);
+                    }                
                 }
-                
+                e.update(timeElapsed);
+                e.clearCollisions();
+                e.clearRange();
+
+                this.UpdateClient(client);
             }
-            e.update(timeElapsed);
-            e.clearCollisions();
-            this.UpdateClient(client);
         });
         
     }
@@ -209,7 +243,7 @@ const drone = new Drone({
         depth: 0.2
     },
     radius: 0.1,
-    height: 0.1,
+    height: 0.2,
     parent:crtr,
     world: world
 });
