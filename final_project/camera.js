@@ -1,11 +1,10 @@
 import * as THREE from 'three';
 
 export default class ThirdPersonCamera {
-    constructor(camera, mesh){
+    constructor(camera, parent){
 
         this._camera = camera;
-        this._mesh = mesh;
-        
+        this._mesh = parent;
         // where the camera is in world coordinates
         this._currentPosition = new THREE.Vector3();
         // where the camera is looking in world coordinates
@@ -19,7 +18,7 @@ export default class ThirdPersonCamera {
     
     _CalculateIdeal(v){
         v.applyQuaternion(this._mesh.quaternion);
-        v.add(this._mesh.position);        
+        v.add(this._mesh.getPosition());        
     }
     
     update(timeElapsed) {

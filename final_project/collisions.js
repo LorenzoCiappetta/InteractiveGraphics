@@ -79,7 +79,7 @@ class Collider {
         const dz = closestPoint.z - p.z;
         const r_sq = dx * dx + dz * dz;
         
-        return (Math.abs(dy) <= hitbox.height / 2) && (r_sq < hitbox.radius * hitbox.radius);
+        return (Math.abs(dy) <= hitbox.height / 2 + 0.01) && (r_sq < hitbox.radius * hitbox.radius);
     }
 
     pointInBoundingBox(closestPoint, p, hitbox) {
@@ -177,7 +177,9 @@ export class StandardCollider extends Collider {
                 const P1 = hitbox1.getPosition();
                 
                 // in this case is better to have p as the position of hitbox2 relative to hitbox1's frame of reference
-                const p = hitbox2.getPosition().sub(P1).applyQuaternion(Q1_con); 
+                const p = hitbox2.getPosition()//.sub(P1).applyQuaternion(Q1_con); 
+                
+                hitbox1.worldToLocal(p);
                 
                 // find closest point between hitboxes                
                 const Y = Math.max(p.y - hitbox2.height / 2, Math.min(0.0, p.y + hitbox2.height / 2)); // this is the same as seen before but in a different frame of reference
@@ -187,42 +189,43 @@ export class StandardCollider extends Collider {
                 const XZ_far = XZ_close.clone();
                 const XZ_hit = XZ_close.clone();
                 XZ_close.setLength(XZ_close.length()-hitbox2.radius);
-                
-                const closestPoint = new THREE.Vector3(XZ_close.x, Y, XZ_close.y);
-                
                 XZ_far.setLength(XZ_far.length()+hitbox2.radius);
-                
-                const furthestPoint = new THREE.Vector3(XZ_far.x, Y, XZ_far.y);
-                
                 XZ_hit.setLength(hitbox1.radius);
                 
+                const closestPoint = new THREE.Vector3(XZ_close.x, Y, XZ_close.y);                                            
+                const furthestPoint = new THREE.Vector3(XZ_far.x, Y, XZ_far.y);                                
                 const hitPoint = new THREE.Vector3(XZ_hit.x, Y, XZ_hit.y);
                 
                 // find displacement between point and hitbox1
                 const dx = closestPoint.x;
                 const dy = closestPoint.y;
                 const dz = closestPoint.z;
-                    
-                const conditionX = (hitPoint.x <= furthestPoint.x && hitPoint.x >= closestPoint.x)
-                                    ?hitPoint.x>=0:
-                                    (hitPoint.x >= furthestPoint.x && hitPoint.x <= closestPoint.x);
+
+                const conditionR = hitbox1.radius*hitbox1.radius >= dx * dx + dz * dz;
+
+                const conditionX = conditionR || 
+                                (hitPoint.x <= furthestPoint.x && hitPoint.x >= closestPoint.x) || 
+                                (hitPoint.x >= furthestPoint.x && hitPoint.x <= closestPoint.x);
                 
-                const conditionY = Math.abs(closestPoint.y) <= hitbox1.height/2;
-                
-                const conditionZ = (hitPoint.z <= furthestPoint.z && hitPoint.z >= closestPoint.z)
-                                    ?hitPoint.z>=0:
-                                    (hitPoint.z >= furthestPoint.z && hitPoint.z <= closestPoint.z);
-                
+                const conditionZ = conditionR || 
+                                (hitPoint.z <= furthestPoint.z && hitPoint.z >= closestPoint.z) || 
+                                (hitPoint.z >= furthestPoint.z && hitPoint.z <= closestPoint.z);
+
+                const conditionY = Math.abs(closestPoint.y) <= hitbox1.height/2 + 0.01;
+                                
                 const condition = conditionX && conditionY && conditionZ;
-                // compute overlap with hitbox1 radius
+
                 if (condition) {     
                                                      
-                    const overlapY = (hitbox1.height / 2) - Math.abs(dy);
-                    const overlapXZ = hitbox1.radius - Math.sqrt(dx * dx + dz * dz);
+                    let overlapY = (hitbox1.height / 2) - Math.abs(dy);
                     
+                    let overlapXZ = hitbox1.radius - Math.sqrt(dx * dx + dz * dz);                    
+                    if(overlapXZ < 0) overlapXZ = hitbox1.radius;
+
                     let normal, overlap;
-                    if (Math.abs(overlapY) < Math.abs(overlapXZ)) {                
-                        normal = new THREE.Vector3(0, -Math.sign(dy), 0);
+                    if (Math.abs(overlapY) < Math.abs(overlapXZ)) {   
+                        
+                        normal = new THREE.Vector3(0, -Math.sign(dy!=0?dy:1), 0);
                         overlap = overlapY;
                     } else {
                         normal = new THREE.Vector3(-dx, 0, -dz).normalize();
@@ -230,10 +233,10 @@ export class StandardCollider extends Collider {
                     }
                     
                     // no need to put everything back to hitbox1 frame of reference, we were already there.
-    
+
                     collision=({
                         hitbox: hitbox2,
-                        contactPoint: closestPoint,
+                        contactPoint: hitPoint,
                         normal,
                         overlap
                     });                
@@ -283,7 +286,7 @@ export class StandardCollider extends Collider {
                 let condition = helper.x*helper.x+helper.z*helper.z < hitbox2.radius*hitbox2.radius;
                 
                 // compute overlap with hitbox1 radius
-                if (condition && Math.abs(dy)<=hitbox1.height/2) {            
+                if (condition && Math.abs(dy)<=hitbox1.height/2+0.01) {            
                     
                     const overlapY = (hitbox1.height / 2) - Math.abs(dy);
                     

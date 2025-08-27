@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {boxLimits, boxCollision} from '/utils.js'
 import ThirdPersonCamera from './camera.js'
-import {CharacterController, DroneController, ProjectileController} from './controls.js'
+import {CharacterController, DroneController, ProjectileController, MovingPlatformController, PlatformController} from './controls.js'
 import {BoxHitBox, CylinderHitBox, StandardCollider} from './collisions.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { FBXLoader} from 'three/addons/loaders/FBXLoader.js';
@@ -431,19 +431,87 @@ export class Walkable extends Entity {
         this._hitbox = new BoxHitBox({width,height,depth});
         this.add(this._hitbox);
         this._mesh.receiveShadow = true;
+        
+        this._collider = new StandardCollider();
+        this._controller = new PlatformController(this);
     }
     
-    update(_){
-        return;
+    update(timeElapsed){
+        this._controller.update(timeElapsed);        
     }
 }
 
 export class MovingPlatform extends Walkable {
-
+    constructor({
+        amplitude,
+        frequency,
+        direction,
+        width,
+        height,
+        depth,
+        mesh,
+        parent,
+        world,
+        position,
+        encumbrance = { 
+            width: 0, // along x
+            depth: 0   // along z
+        }
+    }) {
+        super({
+            width,
+            height,
+            depth,
+            mesh,
+            parent,
+            world,
+            position,
+            encumbrance
+        });
+        
+        this._amplitude = amplitude;
+        this._frequency = frequency;
+        this._direction = direction;
+        
+        this._collider = new StandardCollider();
+        this._controller = new MovingPlatformController(this);
+    }
+    
+    update(timeElapsed) {
+        this._updateSides();
+        this._controller.update(timeElapsed);
+    }
 }
 
 export class Obstacle extends Entity {
 
+    constructor({        
+        height,
+        mesh,
+        parent,
+        world,
+        position,
+        encumbrance = { 
+            width: 0, // along x
+            depth: 0   // along z
+        }
+    }) {
+        super({   
+            height,
+            mesh,
+            parent,
+            world, // world were entity is placed in
+            position,
+            encumbrance,
+        }); 
+    }
+    
+    update(_){
+        return;
+    }    
+}
+
+export class Column extends Obstacle {
     constructor({
         width,
         height,
@@ -472,5 +540,37 @@ export class Obstacle extends Entity {
     
     update(_){
         return;
-    }    
+    }
+}
+
+export class Pillar extends Obstacle {
+
+    constructor({
+        radius,
+        height,
+        mesh,
+        parent,
+        world,
+        position,
+        encumbrance = { 
+            width: 0, // along x
+            depth: 0   // along z
+        }
+    }) {
+        super({   
+            height,
+            mesh,
+            parent,
+            world, // world were entity is placed in
+            position,
+            encumbrance,
+        }); 
+        this._hitbox = new CylinderHitBox({radius, height});
+        this.add(this._hitbox);        
+        this._mesh.receiveShadow = true;
+    }
+    
+    update(_){
+        return;
+    }
 }

@@ -35,7 +35,6 @@ export default class SpatialGrid {
         const [w, h, d] = client.entity.getDimensions();
         const i1 = this._GetCellIndex([x - w /2, z - d / 2]);
         const i2 = this._GetCellIndex([x + w / 2, z + d / 2]);
-        //console.log("a client is between cells",i1, i2);
         const nodes = [];
         
         for(let x = i1[0], xn = i2[0]; x <= xn; ++x){
