@@ -35,6 +35,7 @@ export default class SpatialGrid {
         const [w, h, d] = client.entity.getDimensions();
         const i1 = this._GetCellIndex([x - w /2, z - d / 2]);
         const i2 = this._GetCellIndex([x + w / 2, z + d / 2]);
+
         const nodes = [];
         
         for(let x = i1[0], xn = i2[0]; x <= xn; ++x){
@@ -101,7 +102,10 @@ export default class SpatialGrid {
             for(let y = i1[1], yn = i2[1]; y <= yn; ++y){
                 let head = this._cells[x][y];
                 
+                let temp = 0;
+                
                 while(head){
+                    temp++;
                     const v = head.client;
                     head = head.next;
                     if(v._queryId != queryId){

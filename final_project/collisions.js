@@ -139,10 +139,10 @@ export class StandardCollider extends Collider {
                 if (this.pointInBoundingCylinder(closestPoint, p, hitbox1)) {
                     const overlapY = (hitbox1.height / 2) - Math.abs(dy);
                     const overlapXZ = hitbox1.radius - Math.sqrt(dx * dx + dz * dz);
-    
+        
                     let normal, overlap;
-                    if (overlapY < overlapXZ) {                
-                        normal = new THREE.Vector3(0, -Math.sign(dy), 0);// sign may need to be changed
+                    if (overlapY < overlapXZ) {        
+                        normal = new THREE.Vector3(0, -Math.sign(dy), 0);// sign may need to be changed                        
                         overlap = overlapY;
                     } else {
                         normal = new THREE.Vector3(-dx, 0, -dz).normalize();
@@ -161,7 +161,7 @@ export class StandardCollider extends Collider {
                     closestPoint.sub(P1).applyQuaternion(Q1_con);
                     // normal only need to apply quaternion
                     normal.applyQuaternion(Q1_con);
-
+                    
                     collision=({
                         hitbox: hitbox2,
                         contactPoint: closestPoint,
@@ -286,8 +286,7 @@ export class StandardCollider extends Collider {
                 let condition = helper.x*helper.x+helper.z*helper.z < hitbox2.radius*hitbox2.radius;
                 
                 // compute overlap with hitbox1 radius
-                if (condition && Math.abs(dy)<=hitbox1.height/2+0.01) {            
-                    
+                if (condition && Math.abs(dy)<=hitbox1.height/2+0.02) {            
                     const overlapY = (hitbox1.height / 2) - Math.abs(dy);
                     
                     let overlapX = 0;
@@ -314,7 +313,6 @@ export class StandardCollider extends Collider {
                     }
                     
                     // no need to put everything back to hitbox1 frame of reference, we were already there.
-                        
                     collision=({
                         hitbox: hitbox2,
                         contactPoint: closestPoint,

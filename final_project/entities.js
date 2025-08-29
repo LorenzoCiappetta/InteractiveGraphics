@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import {boxLimits, boxCollision} from '/utils.js'
 import ThirdPersonCamera from './camera.js'
-import {CharacterController, DroneController, ProjectileController, MovingPlatformController, PlatformController} from './controls.js'
+import {CharacterController, EnemyController, DroneController, ProjectileController, MovingPlatformController, PlatformController} from './controllers.js'
 import {BoxHitBox, CylinderHitBox, StandardCollider} from './collisions.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { FBXLoader} from 'three/addons/loaders/FBXLoader.js';
+import {SmokeParticles, SmokeTrailParticles, ExplosionParticles} from './particles.js';
 
 // abstract class for game objects
 class Entity extends THREE.Object3D {
@@ -49,6 +50,7 @@ class Entity extends THREE.Object3D {
     getPosition() {
         const p = new THREE.Vector3();
         this.getWorldPosition(p);
+        //console.log(p.x);
         return p;    
     }
     
@@ -142,10 +144,12 @@ export class Projectile extends Entity {
         this._direction = direction; // assumed to be normal
         this._speed = speed;
         
+        this._trail_particles = new SmokeTrailParticles(this._world._camera, this);
+        
         this._hitbox = new BoxHitBox({
-            width:0.01,
+            width:0.6,
             height:0.2,
-            depth:0.6
+            depth:0.01
         });
         this.add(this._hitbox);
         
@@ -155,7 +159,8 @@ export class Projectile extends Entity {
         this.add( this._mesh );
         const orth_dir = this._direction.clone();
         orth_dir.set(orth_dir.z,orth_dir.y,-orth_dir.x)
-        this._mesh.lookAt(orth_dir.add(this.position));  
+        this._mesh.lookAt(orth_dir.clone().add(this.position));  
+        this._hitbox.lookAt(orth_dir.clone().add(this.position));
         
         this._world.addEntity(this);
         this._world.addToScene(this); 
@@ -165,8 +170,9 @@ export class Projectile extends Entity {
     }
     
     update(timeElapsed) {
-        this._updateSides();        
-        this._controller.update(timeElapsed);        
+        this._updateSides(); 
+        this._controller.update(timeElapsed);
+        this._trail_particles.update(timeElapsed);
     }
     
     checkCollision(entity) {
@@ -181,6 +187,8 @@ export class Projectile extends Entity {
     _delete(){
         this._expired = true;
         this.remove(this._mesh);
+        this.remove(this._hitbox);
+        this._hitbox = null;
         this._mesh = null;
         this._collider = null;
         this._controller = null;
@@ -213,13 +221,14 @@ export class Drone extends Entity {
         
         this._maxammo = 50;
         this._magazine = this._maxammo;
-        this._firerate = 0.4;
-        this._stal = 0.4;
-        this._projectilespeed = 10;
+        this._firerate = 0.3;
+        this._stal = 0.3;
+        this._projectilespeed = 15;
         this._offset = new THREE.Vector3(0.5, 1.0, -0.1);
-        
         this._hitbox = new CylinderHitBox({radius, height});
         this.add(this._hitbox);
+        
+        this._smoke_particles = new SmokeParticles(this._world._camera, this);
         
         this._rotationhelper = new THREE.Object3D();
         this._rotationhelper.castShadow = false;
@@ -238,6 +247,7 @@ export class Drone extends Entity {
         this._stal += timeElapsed;
         this._updateSides();
         this._controller.update(timeElapsed);
+        this._smoke_particles.update(timeElapsed);
     }
 
     checkCollision(entity) {
@@ -262,7 +272,12 @@ export class Drone extends Entity {
                 world:this._world,
                 position:this.getPosition(),
             }); 
+            proj._hitbox.visible = this._hitbox.visible;
             this._stal = 0;
+            const effect_origin = direction.clone().multiplyScalar(0.1);
+            const effect_direction = new THREE.Vector3(0,direction.y,1);
+            effect_direction.normalize();
+            this._smoke_particles.addParticles(timeInSeconds, effect_origin, effect_direction)
         }    
 
     }
@@ -403,8 +418,187 @@ export class Character extends Entity {
 
 }
 
+export class Enemy extends Entity {
+
+    constructor({
+        radius,
+        height,
+        parent,
+        world,
+        position,
+        encumbrance = { 
+            width: 0, // along x
+            depth: 0   // along z
+        },
+        path
+    })  {
+        super({
+            height,
+            mesh:null,
+            parent,
+            world,            
+            position,
+            encumbrance
+        }); 
+              
+        this._animations={};
+        this.gravity = this._world.gravity
+        this._fov = Math.PI/6;
+        this._far = 18;
+        this._close = 5;
+        this.origin = new THREE.Vector3(10,3,10);
+        this._firerate = 0.8;
+        this._stal = 0.8;
+        this._projectilespeed = 10;
+        this._life = 5;
+        
+        this._smoke_particles = new SmokeParticles(this._world._camera, this);
+        this._death_particles = this._world.explosion_particles;
+        
+        this._rotationhelper = new THREE.Object3D();
+        this._rotationhelper.castShadow = false;
+        this._rotationhelper.receiveShadow = false;
+        this.add(this._rotationhelper);
+
+        this._hitbox = new CylinderHitBox({radius, height});
+        this.add(this._hitbox);
+
+        this._controller = new EnemyController(this);
+        this._collider = new StandardCollider();     
+        this._loadModel(path);
+        
+    }
+    
+    update(timeElapsed){
+        const r = this._rotationhelper.quaternion;
+        const d = new THREE.Vector3(0,0,1);
+        d.applyQuaternion(r);
+        
+        this._smoke_particles.addParticles(timeElapsed, d.clone().setLength(0.4),d);
+    
+        this._smoke_particles.update(timeElapsed);
+        this._stal += timeElapsed;
+        this._updateSides();        
+        this._controller.update(timeElapsed);
+        if(this._life <= 0) {
+            const o = new THREE.Vector3(0,0,0)
+            this._death_particles.addParticles(timeElapsed,this.getPosition(),o); 
+            this._world.addToDeleteList(this);
+        }        
+    }
+    
+    checkCollision(entity) {
+        if(entity instanceof Projectile) {
+            if(entity.origin == this || entity.origin == this._weapon) return;
+        }
+        if(this._collider) {
+            const collision = this._collider.collision(this, entity);
+            if(collision) this._collisions.push(collision);
+            
+        }
+    } 
+    
+    _loadModel() {
+        const loader = new GLTFLoader();
+        loader.setPath('./resources/enemy');
+        loader.load('/scene.gltf', (gltf) => {
+            this._mesh = gltf.scene;
+            this._mesh.scale.setScalar(0.1);
+            this._mesh.traverse((c) => {
+                if(c.isMesh) {
+                    c.castShadow = true;
+                    c.receiveShadow = true;
+                    c.material.side = THREE.FrontSide;
+                }
+            });
+                                        
+            this._mesh.rotation.y += Math.PI;
+            this._rotationhelper.add(this._mesh);
+                        
+        });
+    }
+    
+    getTarget() {
+        return this._world._character;
+    }
+
+    Fire(direction, timeInSeconds) {
+        if (this._stal >= this._firerate) {
+            const proj = new Projectile({
+                origin:this,
+                speed:this._projectilespeed,
+                direction:direction,
+                world:this._world,
+                position:this.getPosition(),
+            }); 
+            proj._hitbox.visible = this._hitbox.visible;
+            this._stal = 0;
+        }    
+
+    }
+    
+    receiveHit(){
+        this._life-=1;
+    }
+    
+    _delete(){
+        this._expired = true;
+        this.remove(this._mesh);
+        this.remove(this._rotationhelper);
+        this.remove(this._hitbox);
+        this._rotationhelper = null;
+        this._mesh = null;
+        this._collider = null;
+        this._controller = null;
+        this._world._scene.remove(this);
+        this._hitbox = null;
+    }
+    
+}
+
 // a walkable platform in our world
-export class Walkable extends Entity {
+class Walkable extends Entity {
+
+    constructor({
+        height,
+        mesh,
+        parent,
+        world,
+        position,
+        encumbrance = { 
+            width: 0, // along x
+            depth: 0   // along z
+        }
+    }) {
+        super({   
+            height,
+            mesh,
+            parent,
+            world, // world were entity is placed in
+            position,
+            encumbrance,
+        }); 
+        
+        this._collider = new StandardCollider();
+        this._controller = new PlatformController(this);
+        
+        this.origin=new THREE.Vector2(0,0);
+        
+        this._time = 0.0;
+    }
+    
+    update(timeElapsed){
+        this._time+=timeElapsed;
+        this._controller.update(timeElapsed);
+        const stencil = this._mesh.children[0];
+        if(stencil != undefined && stencil != null){
+            stencil.material.uniforms.time.value = this._time;
+            stencil.material.uniforms.origin.value = this.origin;
+        }
+    }
+}
+
+export class Platform extends Walkable {
 
     constructor({
         width,
@@ -430,15 +624,11 @@ export class Walkable extends Entity {
         
         this._hitbox = new BoxHitBox({width,height,depth});
         this.add(this._hitbox);
-        this._mesh.receiveShadow = true;
         
         this._collider = new StandardCollider();
         this._controller = new PlatformController(this);
     }
-    
-    update(timeElapsed){
-        this._controller.update(timeElapsed);        
-    }
+   
 }
 
 export class MovingPlatform extends Walkable {
@@ -446,9 +636,8 @@ export class MovingPlatform extends Walkable {
         amplitude,
         frequency,
         direction,
-        width,
+        radius,
         height,
-        depth,
         mesh,
         parent,
         world,
@@ -459,9 +648,7 @@ export class MovingPlatform extends Walkable {
         }
     }) {
         super({
-            width,
             height,
-            depth,
             mesh,
             parent,
             world,
@@ -472,9 +659,13 @@ export class MovingPlatform extends Walkable {
         this._amplitude = amplitude;
         this._frequency = frequency;
         this._direction = direction;
-        
+
+        this._hitbox = new CylinderHitBox({radius,height});
+        this.add(this._hitbox);
+
         this._collider = new StandardCollider();
         this._controller = new MovingPlatformController(this);
+        
     }
     
     update(timeElapsed) {

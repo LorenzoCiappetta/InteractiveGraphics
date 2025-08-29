@@ -11,7 +11,7 @@ export default class ThirdPersonCamera {
         this._currentLookat = new THREE.Vector3();
         
         // where the camera is in character coordinates
-        this.id_Offset = new THREE.Vector3(-0.5,1,-1.5);
+        this.id_Offset = new THREE.Vector3(-0.5,1,-2.5);
         // where camera is looking in character coordinates
         this.id_Lookat = new THREE.Vector3(-0.5,1.0,2.0);
     }

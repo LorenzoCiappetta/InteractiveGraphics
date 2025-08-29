@@ -1,16 +1,19 @@
 import * as THREE from 'three';
 import Grid from './world.js'
-import {Drone, Character, Walkable, Obstacle,Pillar, MovingPlatform} from './entities.js'
+import {Drone, Character, Enemy, Platform, Obstacle,Pillar, MovingPlatform} from './entities.js'
+import {object_VS, object_FS} from './shaders.js'
+import {SmokeParticles, SmokeTrailParticles, ExplosionParticles} from './particles.js';
 
 class World extends Grid {
-    constructor(bounds = [[-1000,-1000],[1000,1000]], dimensions = [101,101], gravity = -9.8) {
+    constructor(bounds = [[-1000,-1000],[1000,1000]], dimensions = [200,200], gravity = -9.8) {
     
         super(bounds, dimensions);        
         this.gravity = gravity;   
         this._ephemeralhead = null;
         this._ephemeraltail = null;
         this.globaltime = 0;
-        this.hidehitbox = true;
+        this.hidehitbox = false;
+        this._delete_list = [];
         
         // initialize scene
         const w = window.innerWidth;
@@ -46,7 +49,7 @@ class World extends Grid {
         }, false);
         
         let light = new THREE.DirectionalLight( 0xffffff, 1);
-        light.position.set(100,100,100);
+        light.position.set(-100,100,0);
         light.target.position.set(0,0,0);
         light.castShadow = true;
         
@@ -60,12 +63,12 @@ class World extends Grid {
             './resources/miramar_ft.jpg',
             './resources/miramar_bk.jpg',        
             './resources/miramar_up.jpg',
-            './resources/miramar_dn.jpg',
-            './resources/miramar_lf.jpg',
+            './resources/miramar_dn.jpg',            
             './resources/miramar_rt.jpg',
+            './resources/miramar_lf.jpg',
         ]);
         this._scene.background = texture;
-        
+                
         // for loading textures
         const texloader = new THREE.TextureLoader();
         
@@ -79,7 +82,9 @@ class World extends Grid {
         this._sprite.scale.set(0.15, 0.15 * this._camera.aspect, 1)
         this._sprite.position.set(0, 0, -10);
 
-        this._uiscene.add(this._sprite);        
+        this._uiscene.add(this._sprite);       
+        
+        this.explosion_particles = new ExplosionParticles(this._camera, this._scene);
         
         this._previousRAF = null;                        
     }
@@ -129,9 +134,7 @@ class World extends Grid {
         this._RAF(0.0);
     }
     
-    // TODO: For now it updates worldwide, later may need to be modified to update only around the character 
     update(timeElapsed) {
-        
         // first check on ephemeral objects
         let head = this._ephemeralhead;
         
@@ -139,38 +142,54 @@ class World extends Grid {
             this.popEphemeral();
             head = this._ephemeralhead;
         }
+        
+        this.explosion_particles.update(timeElapsed);
                 
         const w = this._bounds[1][0] - this._bounds[0][0];
         const h = this._bounds[1][1] - this._bounds[0][1];
         let clients = this.FindNear([0, 0],[w, h]);
+        
+        clients.forEach((client) => {
+            const e = client.entity;
+            if(e.expired || e._expired) {
+                this.RemoveClient(client);
+                client.entity = null;
+            }        
+        })
+        
+        clients = this.FindNear([0, 0],[w, h]);
         clients.forEach( (client) => {
             const e = client.entity; 
-            
             if(this.hidehitbox) e.hideHitBox();
             else e.showHitBox();
-            
-            if(e.expired) {
-                this.RemoveClient(client);
-            } else {
-                const p = e.getPosition();
-                const x = p.x;
-                const y = p.z;
-                if (e._collider) {
-                    const candidates = this.FindNear([x,y],[50, 50]); // checks all objects in 50m square
 
-                    for (const candidate of candidates) {
-                        e.checkCollision(candidate.entity);
-                        if(candidate.entity._canbehit) e.addToRange(candidate.entity);
-                    }                
-                }
-                e.update(timeElapsed);
-                e.clearCollisions();
-                e.clearRange();
+            const p = e.getPosition();
+            const x = p.x;
+            const y = p.z;
+            if (e._collider) {
+                const candidates = this.FindNear([x,y],[50, 50]); // checks all objects in 50m square
 
-                this.UpdateClient(client);
+                for (const candidate of candidates) {
+                    e.checkCollision(candidate.entity);
+                    if(candidate.entity._canbehit) e.addToRange(candidate.entity);
+                }                
             }
+            e.update(timeElapsed);
+            e.clearCollisions();
+            e.clearRange();
+
+            this.UpdateClient(client);
+        
+        });  
+        
+        this._delete_list.forEach((a) => {
+            if(a._delete != undefined) a._delete();
         });
         
+    }
+    
+    addToDeleteList(a) {
+        this._delete_list.push(a);
     }
     
     addEntity(e) {
@@ -224,27 +243,98 @@ class World extends Grid {
         
 }
 
+export function createMesh({
+    width,
+    height,
+    depth,
+    radius=-1.,
+    color=0xffffff,
+    isbox=true,
+    VS = object_VS,
+    FS = object_FS,
+} ){
+    // create geometries
+    let geometry = null;
+    if(isbox) {
+        geometry = new THREE.BoxGeometry(width,height,depth);
+    } else {
+        geometry = new THREE.CylinderGeometry(radius, radius, height, 16); 
+    }
+    // create materials
+    const stencil_material = new THREE.ShaderMaterial({
+        uniforms:{
+            time:{
+                value: 0.0,
+            },
+            shimmer:{
+                value: true,
+            },
+            width: {
+                value: width
+            },
+            radius: {
+                value: radius
+            },
+            origin: {
+                value: new THREE.Vector2(0.,0.),
+            }
+        },
+        vertexShader: VS,
+        fragmentShader: FS, 
+        transparent:true,
+        blending: THREE.AdditiveBlending,
+    });
+    const base_material = new THREE.MeshStandardMaterial({ color: color });
+    // create meshes
+    const stencil_mesh = new THREE.Mesh(geometry,stencil_material);
+    const base_mesh = new THREE.Mesh(geometry,base_material);
+    
+    base_mesh.receiveShadow = true;
+    base_mesh.castShadow = true;
+    
+    base_mesh.add(stencil_mesh);
+    return base_mesh;
+}
+
 // create world
 const world = new World();
 
-// initialize meshes
-const ground_geometry = new THREE.BoxGeometry(100,0.5,100);
-const ground_material = new THREE.MeshStandardMaterial({ color: 0xffffff });
-const ground_mesh = new THREE.Mesh(ground_geometry,ground_material);
+const ground_mesh = createMesh({
+    width:100,
+    height:0.5,
+    depth:100,
+    color:0xc6f5f7
+});
 
-const moving_geometry = new THREE.BoxGeometry(6,0.3,6);
-const moving_material = new THREE.MeshStandardMaterial({ color: 0x00ffff });
-const moving_mesh = new THREE.Mesh(moving_geometry,moving_material);
+const moving_mesh =createMesh({
+    width:-1,
+    height:0.3,
+    radius:3,
+    depth:-1,
+    color:0x00ff00,
+    isbox:false
+});
+
 const moving_dir = new THREE.Vector3(1,0,0)
 moving_dir.normalize();
 
-const pillar_geometry = new THREE.CylinderGeometry(2.5,2.5,1,16);
-const pillar_material = new THREE.MeshStandardMaterial({ color: 'blue' });
+const pillar_geometry = new THREE.CylinderGeometry(2.5,2.5,10,16);
+const pillar_material = new THREE.MeshStandardMaterial({ 
+    map: new THREE.TextureLoader().load('./resources/wall.png'),
+});
 const pillar_mesh = new THREE.Mesh(pillar_geometry,pillar_material);
 
 const drone_geometry = new THREE.BoxGeometry(0.2,0.2,0.2);
-const drone_material = new THREE.MeshStandardMaterial({ color: 'red' });
+const drone_material = new THREE.MeshStandardMaterial({ 
+    map: new THREE.TextureLoader().load('./resources/drone.jpg')    
+});
 const drone_mesh = new THREE.Mesh(drone_geometry,drone_material);
+
+
+/*const debug = new THREE.Mesh(new THREE.BoxGeometry(1,1,1),drone_material)
+debug.position.set(1,1,1);
+world._scene.add(debug);
+*/
 
 const moving_platform = new MovingPlatform({
     mesh: moving_mesh,
@@ -254,17 +344,16 @@ const moving_platform = new MovingPlatform({
         depth:10
     },
     height:0.3,
-    width:6,
-    depth:6,
+    radius:3,
     parent: world._scene,
     world: world,
     frequency: 0.5,
     amplitude: 6,
     direction: moving_dir
-})
+});
 
 // create entities (world objects);
-const platform = new Walkable({
+const platform = new Platform({
     mesh: ground_mesh,
     position: new THREE.Vector3(0.0, 0.0, 0.0),
     encumbrance: {
@@ -280,12 +369,12 @@ const platform = new Walkable({
 
 const pillar = new Pillar({
     mesh: pillar_mesh,
-    position: new THREE.Vector3(0.0, 0.75, 5.0),
+    position: new THREE.Vector3(0.0, 5.25, 15.0),
     encumbrance: {
         width: 5,
         depth: 5
     },    
-    height:1,
+    height:10,
     radius:2.5,
     parent: platform,
     world: world
@@ -326,6 +415,23 @@ world.addEntity(pillar);
 world.addEntity(drone);
 world.addPlayerCharacter(crtr);
 
+for (let i = 0; i < 5; ++i) {
+    const pos = new THREE.Vector3((Math.random()*2)+5, (Math.random()*2)+2, (Math.random()*2)+5)
+    const e = new Enemy({
+    path:'Y_Bot.fbx',
+    position:pos,
+    encumbrance: {
+        width: 1,
+        depth: 1
+    },
+    height: 1.0,
+    radius: 0.6,
+    parent: world._scene,
+    world: world    
+    });
+    
+    world.addEntity(e);
+}
 
 world.start();
 
